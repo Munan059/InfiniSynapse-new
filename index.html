@@ -153,6 +153,28 @@
     .col + .col { border-left: none; border-top: 1px solid var(--line); }
     .hero h1 { font-size: 32px; }
   }
+
+  /* ===== 打印 / 存为 PDF 专用：只保留学习计划正文 ===== */
+  @media print {
+    @page { size: A4; margin: 15mm; }
+    .topbar, .hero, .foot, .out-header, .loading, .modal-overlay,
+    #loginCard, .step { display: none !important; }
+    .wrap, .cols { display: block !important; max-width: none !important;
+      margin: 0 !important; padding: 0 !important; border: none !important; overflow: visible !important; }
+    .col { display: block !important; border: none !important; padding: 0 !important;
+      margin: 0 !important; min-height: 0 !important; height: auto !important; overflow: visible !important; }
+    .col + .col { border: none !important; }
+    .out { border: none !important; background: #fff !important; box-shadow: none !important;
+      padding: 0 !important; overflow: visible !important; height: auto !important; max-height: none !important; }
+    /* 代码块在打印时改浅底深字，避免白字看不清 */
+    .out pre { background: #f4f4f5 !important; color: #16181d !important; border: 1px solid #e2e5ea !important; }
+    .out pre code { color: #16181d !important; }
+    .out blockquote { background: #f3f6fc !important; }
+    .out th { background: #f0f0f3 !important; }
+    /* 避免标题 / 列表 / 代码块被分页切断 */
+    .out h1, .out h2, .out h3, .out h4 { break-after: avoid; }
+    .out pre, .out blockquote, .out li, .out tr, .out table { break-inside: avoid; }
+  }
 </style>
 </head>
 <body>
@@ -217,7 +239,7 @@
           <div class="out-actions">
             <button type="button" class="btn-mini" id="copyBtn" disabled onclick="copyResult()">复制</button>
             <button type="button" class="btn-mini" id="dlBtn" disabled onclick="downloadMd()">下载 .md</button>
-            <button type="button" class="btn-mini" id="pdfBtn" disabled onclick="downloadPdf()">下载 PDF</button>
+            <button type="button" class="btn-mini" id="pdfBtn" disabled onclick="printPlan()">存为 PDF</button>
           </div>
         </div>
         <div class="out" id="output">
@@ -248,7 +270,6 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/vendor/html2pdf.bundle.min.js"></script>
 <script src="/vendor/pdfjs/pdf.min.js"></script>
 <script>
   // ===== 登录确认弹窗 =====
@@ -405,29 +426,16 @@
     URL.revokeObjectURL(url);
   }
 
-  function downloadPdf() {
+  function printPlan() {
     if (!lastReplyRaw) return;
     const btn = document.getElementById('pdfBtn');
     const old = btn.textContent;
-    btn.textContent = '生成中…';
-    btn.disabled = true;
-    const el = document.getElementById('output');
-    const name = (document.getElementById('subject').value.trim() || '学习计划').replace(/[\\/:*?"<>|]/g, '');
-    const opt = {
-      margin: 12,
-      filename: name + '.pdf',
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, backgroundColor: '#ffffff', useCORS: true },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-    };
-    html2pdf().set(opt).from(el).save().then(function () {
+    btn.textContent = '打开打印…';
+    // 交给浏览器打印引擎：在弹出的打印窗口里把"目标 / 打印机"选成「另存为 PDF」即可下载
+    setTimeout(function () {
+      window.print();
       btn.textContent = old;
-      btn.disabled = false;
-    }).catch(function (e) {
-      btn.textContent = old;
-      btn.disabled = false;
-      alert('PDF 生成失败：' + (e && e.message ? e.message : e));
-    });
+    }, 100);
   }
 
   async function generate() {
