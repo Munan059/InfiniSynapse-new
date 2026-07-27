@@ -430,7 +430,7 @@ async function login(request, env) {
   const { clientId, clientSecret } = resolveSso(env);
   if (!clientId || !clientSecret) {
     return new Response(
-      '未配置 SSO 凭证（CLIENT_ID / CLIENT_SECRET）。请到 Cloudflare 后台的 Pages 环境变量里填写，或使用「粘贴自己的 Key」模式。',
+      '未配置 SSO 凭证。请到 Cloudflare 后台「该 Pages 项目 → Settings → Environment variables」里添加 CLIENT_ID 与 CLIENT_SECRET（或 INFINI_CLIENT_ID / INFINI_CLIENT_SECRET，任选一套），值填你在 InfiniSynapse「设置 → 第三方接入」创建的接入应用凭证；保存后重新 Deploy 才会生效。',
       { status: 500, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }
     );
   }
