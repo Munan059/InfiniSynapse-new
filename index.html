@@ -5,96 +5,227 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>学习计划助手</title>
 <style>
+  :root {
+    --blue: #2f6bff;
+    --blue-hover: #2a5fe6;
+    --blue-soft: rgba(47,107,255,.1);
+    --ink: #16181d;
+    --gray: #6b7280;
+    --line: #ececf0;
+    --bg: #ffffff;
+    --bg-soft: #fafafb;
+    --green: #18a957;
+  }
   * { box-sizing: border-box; }
-  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; max-width: 760px; margin: 0 auto; padding: 20px; background: #f7f8fa; color: #222; }
-  h1 { font-size: 22px; margin-bottom: 4px; }
-  .sub { color: #888; font-size: 13px; margin-bottom: 18px; }
-  .card { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
-  label { display: block; font-size: 14px; font-weight: 600; margin: 10px 0 6px; }
-  input[type=text], textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; font-family: inherit; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.55;
+  }
+
+  /* ===== 顶部毛玻璃导航 ===== */
+  .topbar {
+    position: sticky; top: 0; z-index: 20; height: 56px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 28px;
+    background: rgba(255,255,255,.72);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: 1px solid var(--line);
+  }
+  .brand { font-size: 16px; font-weight: 600; letter-spacing: -.01em; display: flex; align-items: center; gap: 10px; }
+  .brand .logo { width: 26px; height: 26px; border-radius: 8px; background: linear-gradient(135deg, #2f6bff, #5b8bff); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; box-shadow: 0 2px 8px rgba(47,107,255,.35); }
+  .topbar .status { font-size: 13px; color: var(--gray); display: flex; align-items: center; gap: 10px; }
+  .topbar .status .badge { font-size: 12px; color: var(--blue); background: var(--blue-soft); border-radius: 980px; padding: 3px 10px; font-weight: 600; }
+
+  /* ===== Hero 标题区 ===== */
+  .hero { max-width: 760px; margin: 0 auto; padding: 64px 24px 36px; text-align: center; }
+  .hero .eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .12em; color: var(--blue); text-transform: uppercase; margin-bottom: 16px; }
+  .hero h1 { font-size: 42px; font-weight: 700; letter-spacing: -.025em; line-height: 1.15; margin: 0 0 16px; }
+  .hero h1 .hl { color: var(--blue); }
+  .hero p { font-size: 17px; color: var(--gray); margin: 0 auto; max-width: 600px; }
+  .hero .tags { margin-top: 22px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .pill { display: inline-block; font-size: 12px; font-weight: 600; color: var(--gray); background: var(--bg-soft); border: 1px solid var(--line); border-radius: 980px; padding: 5px 12px; }
+
+  /* ===== 双栏主体（细线分区，非浮卡） ===== */
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 8px 28px 24px; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 20px; overflow: hidden; background: #fff; align-items: stretch; }
+  .col { padding: 32px 36px; display: flex; flex-direction: column; height: 100%; }
+  .col + .col { border-left: 1px solid var(--line); }
+
+  /* 大号序号分区标题（呼应参考站的 01 / 02） */
+  .step { display: flex; align-items: baseline; gap: 14px; margin-bottom: 24px; }
+  .step .num { font-size: 30px; font-weight: 700; color: #dfe3ea; line-height: 1; letter-spacing: -.02em; }
+  .step .title { font-size: 19px; font-weight: 600; color: var(--ink); letter-spacing: -.01em; }
+
+  label { display: block; font-size: 13.5px; font-weight: 600; margin: 22px 0 8px; color: var(--ink); }
+  label:first-of-type { margin-top: 0; }
+  input[type=text], textarea {
+    width: 100%; padding: 12px 14px; border: 1px solid #e2e5ea; border-radius: 11px;
+    font-size: 14px; font-family: inherit; color: var(--ink); background: #fff;
+    transition: border-color .18s, box-shadow .18s;
+  }
+  input[type=text]:focus, textarea:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 4px var(--blue-soft); }
   textarea { min-height: 120px; resize: vertical; }
-  button { background: #2d6cdf; color: #fff; border: none; padding: 10px 16px; border-radius: 8px; font-size: 14px; cursor: pointer; margin-top: 10px; }
-  button:disabled { background: #aac1ec; cursor: not-allowed; }
-  button.ghost { background: #eee; color: #333; }
-  button.login { background: #16a34a; }
-  .progress { font-size: 14px; color: #2d6cdf; font-weight: 600; margin: 6px 0; }
-  .out { white-space: normal; line-height: 1.7; font-size: 14px; background: #fafbfc; border: 1px solid #eee; border-radius: 8px; padding: 12px; min-height: 60px; word-break: break-word; overflow-wrap: anywhere; }
-  .out h1, .out h2, .out h3, .out h4 { margin: 16px 0 8px; line-height: 1.35; }
-  .out h1 { font-size: 20px; border-bottom: 1px solid #eee; padding-bottom: 6px; }
-  .out h2 { font-size: 18px; }
-  .out h3 { font-size: 16px; }
-  .out p { margin: 8px 0; }
-  .out ul, .out ol { margin: 8px 0; padding-left: 22px; }
-  .out li { margin: 4px 0; }
-  .out code { background: #f0f2e6; padding: 1px 5px; border-radius: 4px; font-family: Consolas, "Courier New", monospace; font-size: 13px; }
-  .out pre { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 8px; overflow-x: auto; }
+
+  /* 按钮 */
+  button { font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; border: none; border-radius: 11px; padding: 12px 20px; background: var(--blue); color: #fff; transition: background .18s, transform .08s; }
+  button:hover { background: var(--blue-hover); }
+  button:active { transform: scale(.985); }
+  button:disabled { background: #a9c0ff; cursor: not-allowed; transform: none; }
+  .btn-primary { width: 100%; margin-top: 24px; padding: 14px 20px; font-size: 15px; }
+  button.ghost { background: var(--bg-soft); color: var(--ink); border: 1px solid var(--line); }
+  button.ghost:hover { background: #f0f0f3; }
+  button.login { background: var(--blue); }
+  button.login:hover { background: var(--blue-hover); }
+
+  .filebox { border: 1px dashed #d7dbe2; border-radius: 12px; padding: 16px; background: var(--bg-soft); }
+  input[type=file] { font-size: 13px; width: 100%; }
+  .filename { font-size: 13px; color: var(--blue); margin-top: 8px; }
+  .hint { font-size: 12px; color: var(--gray); margin-top: 6px; }
+  .badge { display: inline-block; font-size: 12px; color: var(--blue); background: var(--blue-soft); border-radius: 980px; padding: 2px 9px; margin-left: 6px; font-weight: 600; }
+
+  /* 输出区 */
+  .out-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .out-actions { display: flex; gap: 8px; }
+  .btn-mini { font-size: 13px; padding: 7px 14px; background: var(--blue); color: #fff; border-radius: 980px; font-weight: 600; }
+  .btn-mini:hover:not(:disabled) { background: var(--blue-hover); }
+  .btn-mini:disabled { background: #c3d2fb; color: #fff; cursor: not-allowed; }
+
+  .out { line-height: 1.65; font-size: 14.5px; color: var(--ink); background: var(--bg-soft); border: 1px solid var(--line); border-radius: 14px; padding: 22px 24px; min-height: 440px; flex: 1 1 auto; align-self: stretch; word-break: break-word; overflow-wrap: anywhere; }
+  .out .placeholder { color: var(--gray); font-size: 14px; }
+  .out h1, .out h2, .out h3, .out h4 { margin: 22px 0 10px; line-height: 1.35; font-weight: 700; letter-spacing: -.01em; }
+  .out h1:first-child, .out h2:first-child, .out h3:first-child { margin-top: 0; }
+  .out h1 { font-size: 24px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+  .out h2 { font-size: 20px; }
+  .out h3 { font-size: 17px; color: #2b2e36; }
+  .out p { margin: 10px 0; }
+  .out ul, .out ol { margin: 10px 0; padding-left: 24px; }
+  .out li { margin: 5px 0; }
+  .out code { background: #eef1f6; padding: 2px 6px; border-radius: 5px; font-family: "SF Mono", Consolas, "Courier New", monospace; font-size: 13px; color: #c0392b; }
+  .out pre { background: #16181d; color: #f5f5f7; padding: 14px; border-radius: 12px; overflow-x: auto; }
   .out pre code { background: none; color: inherit; padding: 0; }
-  .out blockquote { border-left: 3px solid #cfd8e3; margin: 8px 0; padding: 4px 12px; color: #555; background: #f7f9fc; }
-  .out a { color: #2d6cdf; text-decoration: underline; }
-  .out table { border-collapse: collapse; width: 100%; margin: 8px 0; }
-  .out th, .out td { border: 1px solid #ddd; padding: 6px 8px; }
+  .out blockquote { border-left: 3px solid var(--blue); margin: 12px 0; padding: 6px 14px; color: #4b5160; background: var(--blue-soft); border-radius: 0 8px 8px 0; }
+  .out a { color: var(--blue); text-decoration: none; }
+  .out a:hover { text-decoration: underline; }
+  .out table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  .out th, .out td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; }
+  .out th { background: #f0f0f3; font-weight: 600; }
   .out strong { font-weight: 700; }
-  .hint { font-size: 12px; color: #999; margin-top: 4px; }
-  .row { display: flex; gap: 10px; align-items: flex-end; }
-  .row > div { flex: 1; }
-  .err { color: #c0392b; font-size: 13px; margin-top: 8px; }
-  .filebox { border: 1px dashed #cfd8e3; border-radius: 8px; padding: 12px; background: #fbfcfe; }
-  .filename { font-size: 13px; color: #2d6cdf; margin-top: 6px; }
-  input[type=file] { font-size: 13px; }
-  .badge { display:inline-block; font-size:12px; color:#2d6cdf; background:#eaf1fc; border-radius:6px; padding:2px 8px; margin-left:6px;}
-  a { color: #2d6cdf; text-decoration: none; }
-  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 50; }
-  .modal-box { background: #fff; border-radius: 12px; padding: 20px; width: 320px; max-width: 86vw; box-shadow: 0 8px 30px rgba(0,0,0,.18); }
-  .modal-text { font-size: 14px; line-height: 1.6; color: #222; margin-bottom: 18px; }
+
+  /* 加载动画 */
+  .loading { display: none; flex-direction: column; align-items: center; justify-content: center; min-height: 440px; gap: 18px; }
+  .spinner { width: 40px; height: 40px; border-radius: 50%; border: 3px solid var(--blue-soft); border-top-color: var(--blue); animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-size: 15px; color: var(--gray); }
+  .loading-dots::after { content: ''; animation: dots 1.4s steps(4, end) infinite; }
+  @keyframes dots { 0% { content: ''; } 25% { content: '·'; } 50% { content: '··'; } 75% { content: '···'; } 100% { content: ''; } }
+
+  .err { color: #e02424; font-size: 13px; margin-top: 12px; }
+
+  /* 登录弹窗 */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 50; }
+  .modal-box { background: #fff; border-radius: 20px; padding: 26px; width: 340px; max-width: 86vw; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+  .modal-text { font-size: 15px; line-height: 1.6; color: var(--ink); margin-bottom: 22px; }
   .modal-actions { display: flex; gap: 12px; }
-  .modal-actions button { flex: 1; margin-top: 0; padding: 10px 0; border-radius: 8px; font-size: 14px; cursor: pointer; border: 1px solid transparent; }
-  .btn-cancel { background: #fff; color: #333; border: 1px solid #d0d5dd; }
-  .btn-cancel:hover { background: #f2f4f7; }
-  .btn-confirm { background: #16a34a; color: #fff; }
-  .btn-confirm:hover { background: #15803d; }
+  .modal-actions button { flex: 1; margin-top: 0; padding: 11px 0; border-radius: 11px; font-size: 14px; }
+  .btn-cancel { background: var(--bg-soft); color: var(--ink); border: 1px solid var(--line); }
+  .btn-cancel:hover { background: #f0f0f3; }
+  .btn-confirm { background: var(--blue); color: #fff; }
+  .btn-confirm:hover { background: var(--blue-hover); }
+
+  /* 页脚脚注（呼应参考站底部项目署名） */
+  .foot { text-align: center; padding: 36px 24px 48px; color: var(--gray); font-size: 12px; letter-spacing: .06em; }
+  .foot b { color: var(--ink); font-weight: 600; }
+
+  @media (max-width: 900px) {
+    .cols { grid-template-columns: 1fr; }
+    .col + .col { border-left: none; border-top: 1px solid var(--line); }
+    .hero h1 { font-size: 32px; }
+  }
 </style>
-<!-- 本地 Markdown 渲染库（与站点同源，国内访问稳定）：marked 把 # 标题/**加粗** 等转成排版好的 HTML，DOMPurify 过滤危险代码 -->
-<script src="/vendor/marked.min.js"></script>
-<script src="/vendor/purify.min.js"></script>
 </head>
 <body>
-  <h1>学习计划助手</h1>
-  <div class="sub">输入你想学的知识，上传教材或教程，AI 帮你列一份清晰可执行的阶段学习计划：每个阶段学什么、重点是什么、建议投入多少时间。</div>
 
-  <!-- 登录卡片：访客用 InfiniSynapse 账号登录（自己的额度） -->
-  <div class="card" id="loginCard">
-    <label>🔑 登录后使用</label>
-    <div id="loginArea">
-      <button type="button" class="login" onclick="openLoginConfirm()">使用 InfiniSynapse 登录</button>
-    </div>
-    <div id="userArea" style="display:none">
-      <span class="badge" id="userBadge"></span>
-      <a href="/logout" style="font-size:12px;color:#c0392b;margin-left:8px;">退出</a>
+  <!-- 顶部毛玻璃导航 -->
+  <div class="topbar">
+    <div class="brand"><span class="logo">学</span>学习计划助手</div>
+    <div class="status">
+      <span id="topStatus">未登录</span>
+      <span class="badge" id="userBadge" style="display:none"></span>
     </div>
   </div>
 
-  <div class="card">
-    <label>① 你想学习什么知识？（一个领域或主题）</label>
-    <input type="text" id="subject" placeholder="例如：机器学习入门 / 短视频运营 / Python 数据分析">
-
-    <label>② 上传学习资料（PDF 教材，或 .txt/.md 教程）</label>
-    <div class="filebox">
-      <input type="file" id="fileInput" accept=".pdf,.txt,.md,.text">
-      <div class="filename" id="fileName"></div>
+  <!-- Hero 标题区 -->
+  <div class="hero">
+    <h1>把想学的，变成<span class="hl">可执行的计划</span>。</h1>
+    <p>输入你想学的知识，上传教材或教程，AI 帮你拆成清晰的阶段：每阶段学什么、重点是什么、投入多少时间。</p>
+    <div class="tags">
+      <span class="pill">AI 驱动</span>
+      <span class="pill">Markdown 输出</span>
+      <span class="pill">可复制 · 可下载</span>
     </div>
-    <div class="hint">也可以不选文件，直接在下面粘贴教程文字。</div>
-
-    <label>或把教程文字直接粘贴到这里</label>
-    <textarea id="tutorial" placeholder="把教程、笔记、或资料的文字内容粘进来。越长越准，但别超太长。"></textarea>
-
-    <button id="genBtn" onclick="generate()">③ 生成学习计划</button>
   </div>
 
-  <div class="card">
-    <label>AI 输出</label>
-    <div class="out" id="output">（结果会显示在这里）</div>
-    <div class="err" id="err"></div>
+  <div class="wrap">
+    <div class="cols">
+
+      <!-- 左栏：01 你的输入 -->
+      <div class="col" id="loginCard">
+        <div class="step"><span class="num">01</span><span class="title">你的输入</span></div>
+
+        <label>登录后使用</label>
+        <div id="loginArea">
+          <button type="button" class="login" style="width:100%" onclick="openLoginConfirm()">使用 InfiniSynapse 登录</button>
+        </div>
+        <div id="userArea" style="display:none">
+          <span class="badge" id="userBadge2"></span>
+          <a href="/logout" style="font-size:12px;color:#e02424;margin-left:8px;">退出</a>
+        </div>
+
+        <label>① 你想学习什么知识？（一个领域或主题）</label>
+        <input type="text" id="subject" placeholder="例如：机器学习入门 / 短视频运营 / Python 数据分析">
+
+        <label>② 上传学习资料（PDF 教材，或 .txt/.md 教程）</label>
+        <div class="filebox">
+          <input type="file" id="fileInput" accept=".pdf,.txt,.md,.text">
+          <div class="filename" id="fileName"></div>
+        </div>
+        <div class="hint">也可以不选文件，直接在下面粘贴教程文字。</div>
+
+        <label>或把教程文字直接粘贴到这里</label>
+        <textarea id="tutorial" placeholder="把教程、笔记、或资料的文字内容粘进来。越长越准，但别超太长。"></textarea>
+
+        <button id="genBtn" class="btn-primary" onclick="generate()">③ 生成学习计划 ↗</button>
+        <div class="err" id="err"></div>
+      </div>
+
+      <!-- 右栏：02 生成计划 -->
+      <div class="col">
+        <div class="step"><span class="num">02</span><span class="title">生成计划</span></div>
+        <div class="out-header">
+          <div class="out-actions">
+            <button type="button" class="btn-mini" id="copyBtn" disabled onclick="copyResult()">复制</button>
+            <button type="button" class="btn-mini" id="dlBtn" disabled onclick="downloadMd()">下载 .md</button>
+          </div>
+        </div>
+        <div class="out" id="output">
+          <div class="placeholder">（生成后，你的专属学习计划会显示在这里）</div>
+        </div>
+        <div class="loading" id="loading">
+          <div class="spinner"></div>
+          <div class="loading-text loading-dots">AI 正在为你生成学习计划</div>
+        </div>
+      </div>
+
+    </div>
   </div>
+
+  <!-- 页脚署名 -->
+  <div class="foot">INFINISYNAPSE · <b>学习计划助手</b> · 由 AI 驱动的个性化学习路径生成</div>
 
 <!-- 登录确认弹窗 -->
 <div id="loginModal" class="modal-overlay" style="display:none" onclick="if(event.target===this) closeLoginConfirm()">
@@ -107,6 +238,8 @@
   </div>
 </div>
 
+<script src="/vendor/marked.min.js"></script>
+<script src="/vendor/purify.min.js"></script>
 <script>
   // ===== 登录确认弹窗 =====
   function openLoginConfirm() {
@@ -130,19 +263,23 @@
       const loginArea = document.getElementById('loginArea');
       const userArea = document.getElementById('userArea');
       const genBtn = document.getElementById('genBtn');
+      const topStatus = document.getElementById('topStatus');
       if (loggedIn) {
         loginArea.style.display = 'none';
         userArea.style.display = 'block';
         const name = (data.user && (data.user.nickname || data.user.email)) || '已登录';
         document.getElementById('userBadge').textContent = '已登录：' + name;
+        document.getElementById('userBadge2').textContent = '已登录：' + name;
+        topStatus.style.display = 'none';
         genBtn.disabled = false;
       } else {
         loginArea.style.display = 'block';
         userArea.style.display = 'none';
+        topStatus.style.display = 'inline';
+        topStatus.textContent = '未登录';
         genBtn.disabled = true;
       }
     } catch {
-      // 拿不到登录态就当作未登录
       loggedIn = false;
       document.getElementById('genBtn').disabled = true;
     }
@@ -150,13 +287,13 @@
 
   // 会话用的 taskId 来自后端多轮上下文
   let taskId = null;
-  let pdfBase64 = null;     // 选了 PDF 时存 base64
-  let tutorialText = '';    // 选了 .txt/.md 时存文字
-  let uploadedFile = '';    // 当前已选文件名
+  let pdfBase64 = null;
+  let tutorialText = '';
+  let uploadedFile = '';
+  let lastReplyRaw = '';
 
   refreshLogin();
 
-  // 把 ArrayBuffer 转成 base64 字符串
   function arrayBufferToBase64(buf) {
     let binary = '';
     const bytes = new Uint8Array(buf);
@@ -167,7 +304,6 @@
     return btoa(binary);
   }
 
-  // 处理文件选择：PDF 转 base64，txt/md 直接读文字
   document.getElementById('fileInput').addEventListener('change', async (e) => {
     const errEl = document.getElementById('err');
     errEl.textContent = '';
@@ -214,45 +350,80 @@
       throw new Error('服务端返回了非 JSON 内容：' + (txt.slice(0, 300) || '（空响应）'));
     }
     if (data.error) throw new Error(data.error);
-    taskId = data.taskId; // 多轮对话靠它续上
+    taskId = data.taskId;
     return data.reply;
   }
 
-  // 把 Markdown 文本渲染成安全、排版正确的 HTML（# 标题、**加粗**、- 列表 等都会正确显示，不再裸露 # 号）
   function renderMarkdown(md) {
-    if (typeof marked === 'undefined') return '';          // 库没加载成功就返回空，交给下方兜底逻辑显示原文
+    if (typeof marked === 'undefined') return '';
     const rawHtml = marked.parse(md || '');
     if (typeof DOMPurify !== 'undefined') return DOMPurify.sanitize(rawHtml);
     return rawHtml;
   }
 
+  async function copyResult() {
+    if (!lastReplyRaw) return;
+    const btn = document.getElementById('copyBtn');
+    try {
+      await navigator.clipboard.writeText(lastReplyRaw);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = lastReplyRaw; document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); ta.remove();
+    }
+    const old = btn.textContent;
+    btn.textContent = '已复制';
+    setTimeout(() => { btn.textContent = old; }, 1500);
+  }
+
+  function downloadMd() {
+    if (!lastReplyRaw) return;
+    const subj = (document.getElementById('subject').value.trim() || '学习计划').replace(/[\\/:*?"<>|]/g, '');
+    const blob = new Blob([lastReplyRaw], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = subj + '.md';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }
+
   async function generate() {
     const subject = document.getElementById('subject').value.trim();
     if (!loggedIn) { document.getElementById('err').textContent = '请先点上方「使用 InfiniSynapse 登录」登录后再生成（用自己的额度）。'; return; }
-    // 若用户又在文本框里粘贴了，优先取文本框内容
     tutorialText = document.getElementById('tutorial').value.trim() || tutorialText;
     const errEl = document.getElementById('err');
     const outEl = document.getElementById('output');
+    const loadingEl = document.getElementById('loading');
     const btn = document.getElementById('genBtn');
+    const copyBtn = document.getElementById('copyBtn');
+    const dlBtn = document.getElementById('dlBtn');
     errEl.textContent = '';
     if (!subject && !pdfBase64 && !tutorialText) {
       errEl.textContent = '请至少填写想学的知识，或上传 PDF / 教程。';
       return;
     }
-    btn.disabled = true; outEl.textContent = '正在读取资料并生成学习计划，请稍候（首次可能要十几秒）…';
+    btn.disabled = true;
+    copyBtn.disabled = true;
+    dlBtn.disabled = true;
+    loadingEl.style.display = 'flex';
+    outEl.style.display = 'none';
     try {
       const reply = await postChat(subject);
+      lastReplyRaw = reply || '';
       if (!reply) {
-        outEl.textContent = '（未返回内容，请到 InfiniSynapse 后台查看任务）';
+        outEl.innerHTML = '<div class="placeholder">（未返回内容，请到 InfiniSynapse 后台查看任务）</div>';
       } else if (typeof marked !== 'undefined') {
-        outEl.innerHTML = renderMarkdown(reply);   // 渲染 Markdown：排版正确，# 号不再裸露
+        outEl.innerHTML = renderMarkdown(reply);
       } else {
-        outEl.textContent = reply;                 // 库加载失败时的兜底：至少把原文显示出来
+        outEl.textContent = reply;
       }
+      if (reply) { copyBtn.disabled = false; dlBtn.disabled = false; }
     } catch (e) {
       errEl.textContent = '出错：' + e.message;
-      outEl.textContent = '';
+      outEl.innerHTML = '';
     } finally {
+      loadingEl.style.display = 'none';
+      outEl.style.display = 'block';
       btn.disabled = false;
     }
   }
