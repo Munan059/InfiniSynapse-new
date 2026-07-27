@@ -95,7 +95,7 @@
   .btn-mini:hover:not(:disabled) { background: var(--blue-hover); }
   .btn-mini:disabled { background: #c3d2fb; color: #fff; cursor: not-allowed; }
 
-  .out { line-height: 1.65; font-size: 14.5px; color: var(--ink); background: var(--bg-soft); border: 1px solid var(--line); border-radius: 14px; padding: 22px 24px; min-height: 440px; flex: 1 1 auto; align-self: stretch; word-break: break-word; overflow-wrap: anywhere; }
+  .out { line-height: 1.65; font-size: 14.5px; color: var(--ink); background: var(--bg-soft); border: 1px solid var(--line); border-radius: 14px; padding: 22px 24px; min-height: 440px; flex: 1 1 auto; align-self: stretch; min-height: 0; overflow-y: auto; word-break: break-word; overflow-wrap: anywhere; }
   .out .placeholder { color: var(--gray); font-size: 14px; }
   .out h1, .out h2, .out h3, .out h4 { margin: 22px 0 10px; line-height: 1.35; font-weight: 700; letter-spacing: -.01em; }
   .out h1:first-child, .out h2:first-child, .out h3:first-child { margin-top: 0; }
@@ -116,8 +116,15 @@
   .out th { background: #f0f0f3; font-weight: 600; }
   .out strong { font-weight: 700; }
 
+  /* 输出区细滚动条（苹果风） */
+  .out { scrollbar-width: thin; scrollbar-color: #c3c9d4 transparent; }
+  .out::-webkit-scrollbar { width: 8px; }
+  .out::-webkit-scrollbar-track { background: transparent; }
+  .out::-webkit-scrollbar-thumb { background: #c3c9d4; border-radius: 8px; }
+  .out::-webkit-scrollbar-thumb:hover { background: #aab2c0; }
+
   /* 加载动画 */
-  .loading { display: none; flex-direction: column; align-items: center; justify-content: center; min-height: 440px; gap: 18px; }
+  .loading { display: none; flex-direction: column; align-items: center; justify-content: center; min-height: 440px; min-height: 0; flex: 1 1 auto; align-self: stretch; gap: 18px; }
   .spinner { width: 40px; height: 40px; border-radius: 50%; border: 3px solid var(--blue-soft); border-top-color: var(--blue); animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .loading-text { font-size: 15px; color: var(--gray); }
