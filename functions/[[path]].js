@@ -52,6 +52,15 @@ function cookieFlags(maxAge, more = '') {
   return `Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=${maxAge}${more}`;
 }
 
+// 兼容两种环境变量命名：云端函数版用 CLIENT_ID / CLIENT_SECRET，
+// 本地 server.js 用 INFINI_CLIENT_ID / INFINI_CLIENT_SECRET。两者都认，
+// 避免「明明配了 SSO 凭证，却因名字对不上而被识别成未配置」——那正是登录按钮被隐藏/登录失败的根因。
+function resolveSso(env) {
+  const clientId = env.CLIENT_ID || env.INFINI_CLIENT_ID || '';
+  const clientSecret = env.CLIENT_SECRET || env.INFINI_CLIENT_SECRET || '';
+  return { clientId, clientSecret };
+}
+
 // ===================== 会话加密（Web Crypto / AES-GCM）=====================
 // 把访客的 Key 加密后存进 http-only cookie，前端 JS 读不到、外泄不了。
 
@@ -105,12 +114,13 @@ async function decryptSession(b64, secret) {
 // ===================== 调用 InfiniSynapse 账号侧 SSO 接口 =====================
 
 async function partnerReq(path, body, env) {
+  const { clientId, clientSecret } = resolveSso(env);
   const resp = await fetch(ACCOUNT_API + path, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Client-Id': env.CLIENT_ID,
-      'X-Client-Secret': env.CLIENT_SECRET,
+      'X-Client-Id': clientId,
+      'X-Client-Secret': clientSecret,
     },
     body: JSON.stringify(body),
   });
@@ -359,7 +369,8 @@ async function apiMe(request, env) {
     return json({ loggedIn: true, mode: 'sso', user: { nickname: s.nickname, email: s.email } });
   }
   // 没 SSO 会话：前端可能处于「自己贴 Key」模式（Key 存在它自己浏览器里，这里不知道）
-  return json({ loggedIn: false, ssoEnabled: !!(env.CLIENT_ID && env.CLIENT_SECRET) });
+  const { clientId, clientSecret } = resolveSso(env);
+  return json({ loggedIn: false, ssoEnabled: !!(clientId && clientSecret) });
 }
 
 // /api/chat —— 前端点「生成」时调用：开新任务，返回 taskId（很快）
@@ -414,9 +425,10 @@ async function apiPoll(request, env) {
   }
 }
 
-// /login —— 发起 SSO 登录（仅在配置了 CLIENT_ID/CLIENT_SECRET 时可用）
+// /login —— 发起 SSO 登录（仅在配置了 SSO 凭证时可用）
 async function login(request, env) {
-  if (!env.CLIENT_ID || !env.CLIENT_SECRET) {
+  const { clientId, clientSecret } = resolveSso(env);
+  if (!clientId || !clientSecret) {
     return new Response(
       '未配置 SSO 凭证（CLIENT_ID / CLIENT_SECRET）。请到 Cloudflare 后台的 Pages 环境变量里填写，或使用「粘贴自己的 Key」模式。',
       { status: 500, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }
@@ -449,7 +461,8 @@ async function authCallback(request, env) {
   if (!code || !state || state !== cookies.xy_oauth_state) {
     return new Response('登录校验失败（state 不匹配或缺少 code），请回到首页重新登录。', { status: 400, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
   }
-  if (!env.CLIENT_ID || !env.CLIENT_SECRET) return new Response('未配置 SSO 凭证。', { status: 500, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+  const { clientId, clientSecret } = resolveSso(env);
+  if (!clientId || !clientSecret) return new Response('未配置 SSO 凭证。', { status: 500, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
 
   let tok;
   try {

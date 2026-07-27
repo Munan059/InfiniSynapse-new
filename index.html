@@ -184,15 +184,9 @@
       <div class="col" id="loginCard">
         <div class="step"><span class="num">01</span><span class="title">你的输入</span></div>
 
-        <label>登录后使用（任选一种）</label>
+        <label>登录后使用</label>
         <div id="loginArea">
           <button type="button" class="login" id="ssoBtn" style="width:100%" onclick="openLoginConfirm()">使用 InfiniSynapse 账号登录</button>
-          <div class="hint" style="text-align:center;margin:10px 0 2px;">— 或者 —</div>
-          <div style="display:flex;gap:8px;align-items:center;">
-            <input type="password" id="keyInput" placeholder="粘贴你自己的 InfiniSynapse API Key" style="flex:1">
-            <button type="button" class="ghost" style="padding:9px 14px;white-space:nowrap;" onclick="saveKey()">保存 Key</button>
-          </div>
-          <div class="hint" id="keyHint"></div>
         </div>
         <div id="userArea" style="display:none">
           <span class="badge" id="userBadge2"></span>
@@ -269,21 +263,21 @@
 
   // ===== 登录态：SSO 会话 + 本地 Key 两种模式 =====
   let loggedIn = false;   // SSO 登录态（来自后端 cookie）
-  let hasKey = false;     // 本地浏览器里存了访客自己的 Key
   let ssoEnabled = true;  // 后端是否配置了 SSO 凭证
 
   function updateGenBtn() {
-    document.getElementById('genBtn').disabled = !(loggedIn || hasKey);
+    document.getElementById('genBtn').disabled = !loggedIn;
   }
 
   async function refreshLogin() {
     try {
       const resp = await fetch('/api/me');
       const data = await resp.json();
-      ssoEnabled = !!data.ssoEnabled;
       loggedIn = !!data.loggedIn;
+      // 登录按钮（SSO）始终显示：SSO 与「自己贴 Key」是两种并列的登录方式，
+      // 不该因为后端没回传 ssoEnabled 而把按钮藏起来（否则会出现「1 秒后登录按钮消失、只剩 API Key」）。
       const ssoBtn = document.getElementById('ssoBtn');
-      if (ssoBtn) ssoBtn.style.display = (data.ssoEnabled !== false) ? 'block' : 'none';
+      if (ssoBtn) ssoBtn.style.display = 'block';
       const loginArea = document.getElementById('loginArea');
       const userArea = document.getElementById('userArea');
       const topStatus = document.getElementById('topStatus');
@@ -304,23 +298,7 @@
       loggedIn = false;
       document.getElementById('loginArea').style.display = 'block';
     }
-    hasKey = !!localStorage.getItem('infiniKey');
-    updateGenBtn();
-  }
-
-  function saveKey() {
-    const v = document.getElementById('keyInput').value.trim();
-    if (!v) { document.getElementById('keyHint').textContent = '请先粘贴 Key 再保存。'; return; }
-    localStorage.setItem('infiniKey', v);
-    hasKey = true;
-    document.getElementById('keyHint').textContent = '已保存（只存在你这个浏览器里，作者看不到）。';
-    document.getElementById('keyInput').value = '';
-    updateGenBtn();
-  }
-  function clearKey() {
-    localStorage.removeItem('infiniKey');
-    hasKey = false;
-    document.getElementById('keyHint').textContent = '';
+    const ts = document.getElementById('topStatus');
     updateGenBtn();
   }
 
@@ -462,8 +440,8 @@
     const dlBtn = document.getElementById('dlBtn');
     const pdfBtn = document.getElementById('pdfBtn');
     errEl.textContent = '';
-    if (!loggedIn && !hasKey) {
-      errEl.textContent = '请先登录（点上方按钮），或在登录框里粘贴你自己的 InfiniSynapse API Key。';
+    if (!loggedIn) {
+      errEl.textContent = '请先登录（点上方按钮）后再生成。';
       return;
     }
     if (!subject && !pdfText && !tutorialText) {
@@ -474,7 +452,7 @@
     loadingEl.style.display = 'flex'; outEl.style.display = 'none';
     try {
       // 1) 开新任务，拿到 taskId（很快）
-      const apiKey = hasKey ? localStorage.getItem('infiniKey') : undefined;
+      const apiKey = undefined;
       const chatResp = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
