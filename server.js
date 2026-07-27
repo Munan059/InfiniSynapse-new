@@ -22,6 +22,7 @@ const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-only-insecure-change-m
 const PUBLIC_ORIGIN = process.env.PUBLIC_ORIGIN || ('http://localhost:' + PORT);
 const MAX_BODY = 12 * 1024 * 1024; // 请求体上限 12MB（容纳 PDF 的 base64）
 const MAX_CONTEXT = 30000;          // 喂给 AI 的资料文字上限，避免超长
+const REPORT_FILE_NAME = 'study-plan.md'; // 让 AI 把最终计划写进工作区的固定文件，后端再读它回传
 
 const SECURE_COOKIE = PUBLIC_ORIGIN.startsWith('https://');
 
@@ -133,58 +134,42 @@ async function extractPdf(base64) {
   return (result.text || '').trim();
 }
 
-// 从任务详情的 messages 数组里取出助手最终回复文字
-// InfiniSynapse 的 messages 元素结构：{ type: "say"|"ask", text: "..." }（无 role / 无 content 字段）
-function extractFinalText(task) {
-  if (!task) return '';
-  const msgs = task.messages || (task.data && task.data.messages) || [];
-  if (!Array.isArray(msgs) || msgs.length === 0) return '';
-  const textOf = (m) => {
-    if (!m) return '';
-    if (typeof m.text === 'string') return m.text;
-    if (m.message && typeof m.message.text === 'string') return m.message.text;
-    if (typeof m.content === 'string') return m.content;
-    return '';
-  };
-  // 1) 优先取带完成信号的消息
-  const comp = msgs.find(m => m && (m.say === 'completion_result' || (m.message && m.message.say === 'completion_result')));
-  if (comp) { const t = textOf(comp); if (t) return t; }
-  // 2) 取最后一条助手输出（type === 'say'）
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    const m = msgs[i];
-    if (m && (m.type === 'say' || (m.message && m.message.type === 'say'))) {
-      const t = textOf(m); if (t) return t;
-    }
-  }
-  // 3) 兜底：最后一条有文字的消息
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    const t = textOf(msgs[i]); if (t) return t;
-  }
-  return '';
-}
-
-// 调用 InfiniSynapse：发任务 → 轮询任务结果接口拿最终文字（不解析 SSE 流，避免字段名不匹配）
+// 调用 InfiniSynapse：发任务 → 轮询任务工作区里的「报告文件」拿最终文字
+// 关键修正：InfiniSynapse 的 AI 不会把最终答案塞进 messages 文本里，
+// 而是把答案写成工作区根目录的一个 Markdown 文件（约定文件名见 REPORT_FILE_NAME）。
+// 正确链路（来自官方 web-demo /agent-client.ts）：
+//   发任务 → 轮询 getTaskWorkspace 看文件是否生成 → previewFile 读 data.content → 作为最终文字回传。
 async function callInfini(text, taskId, apiKey) {
   if (!apiKey) throw new Error('未登录：请先点击「使用 InfiniSynapse 登录」登录后再使用（用你自己的额度，不花作者钱）');
-  const connId = uuid();
   const authHeader = { 'Authorization': `Bearer ${apiKey}` };
 
-  // 1) 建立 SSE 长连接（保持连接，满足"先连后发"；但不解析流，仅后台排空保活）
-  let sseReader = null, drain = null;
-  try {
-    const sseResp = await fetch(`${BASE}/api/ai/events?connId=${connId}`, {
-      headers: { ...authHeader, 'Accept': 'text/event-stream' }
-    });
-    if (sseResp.ok && sseResp.body) {
-      sseReader = sseResp.body.getReader();
-      drain = (async () => { try { while (true) { const { done } = await sseReader.read(); if (done) break; } } catch {} })();
-    }
-  } catch {}
+  // 1) 新建 / 继续任务：taskId 自己生成（官方 demo 也是客户端生成），连同 connId 一起发
+  const connId = uuid();
+  const newTaskId = taskId || uuid();
+  const body = {
+    type: taskId ? 'askResponse' : 'newTask',
+    taskId: newTaskId,
+    text,
+    connId,
+  };
+  if (!taskId) {
+    // 新任务：开启自动审批，让 AI 自主跑完、把计划写进文件（不必等人点确认）
+    body.images = [];
+    body.autoApprovalSettings = {
+      enabled: true,
+      actions: { useMcp: true, useSandbox: true, useRag: true, useDatabase: true },
+      maxRequests: 40,
+      maxSubAgentRequests: 4,
+      enableNotifications: true,
+      enableWebSearch: true,
+      enableReadImage: true,
+      enableBrowser: false,
+    };
+    body.chatSettings = { mode: 'act' };
+  } else {
+    body.askResponse = 'messageResponse';
+  }
 
-  // 2) 发送消息：有 taskId 则是多轮追问，否则新建任务
-  const body = taskId
-    ? { type: 'askResponse', taskId, askResponse: 'messageResponse', text }
-    : { type: 'newTask', text, connId, chatSettings: { mode: 'act' } };
   const msgResp = await fetch(`${BASE}/api/ai/message`, {
     method: 'POST',
     headers: { ...authHeader, 'Content-Type': 'application/json' },
@@ -194,41 +179,55 @@ async function callInfini(text, taskId, apiKey) {
     const errText = await msgResp.text().catch(() => '');
     throw new Error(`发送消息到 InfiniSynapse 失败，HTTP ${msgResp.status}：${errText.slice(0, 300) || '无返回内容'}`);
   }
-  const msgData = await msgResp.json().catch(() => ({}));
-  const newTaskId = (msgData && msgData.data && (msgData.data.taskId || msgData.data.id)) || taskId;
-  if (!newTaskId) throw new Error('未能获取任务 ID，无法轮询结果（请到 InfiniSynapse 后台查看任务）');
+  const msgJson = await msgResp.json().catch(() => ({}));
+  // 统一信封：{ code:200, message:"success", data:{ success:true/false, ... } }
+  if (msgJson && typeof msgJson.code === 'number' && msgJson.code !== 200) {
+    throw new Error('InfiniSynapse 拒绝任务：' + (msgJson.message || '未知错误'));
+  }
+  const inner = msgJson.data || msgJson;
+  if (inner && inner.success === false) {
+    const note = inner.notification;
+    const msg = note ? [note.title, note.message].filter(Boolean).join('：') : (inner.error || '任务提交被拒绝');
+    throw new Error('InfiniSynapse 拒绝任务：' + msg);
+  }
 
-  // 3) 轮询任务结果：GET /api/ai_task/tasks?taskId= ，isRunning 变 false 即结束
+  // 2) 轮询任务工作区：等报告文件出现，再读取其内容
   let fullText = '';
-  let errored = false;
   const POLL_INTERVAL = 2000;
-  const MAX_POLLS = 45; // 约 90 秒上限（受 Vercel 函数超时约束，vercel.json 已设为 60s）
+  const MAX_POLLS = 26; // 约 53s，给 Vercel 60s 函数超时留余量
   for (let i = 0; i < MAX_POLLS; i++) {
-    await new Promise(r => setTimeout(r, i === 0 ? 1000 : POLL_INTERVAL));
-    let task = null;
+    await new Promise(r => setTimeout(r, i === 0 ? 800 : POLL_INTERVAL));
+    // 2a) 取工作区文件列表
+    let files = [];
     try {
-      const tResp = await fetch(`${BASE}/api/ai_task/tasks?taskId=${encodeURIComponent(newTaskId)}`, {
+      const wsResp = await fetch(`${BASE}/api/ai_task/getTaskWorkspace/${encodeURIComponent(newTaskId)}`, {
         headers: authHeader
       });
-      if (tResp.ok) task = await tResp.json().catch(() => ({}));
+      const wsJson = await wsResp.json().catch(() => ({}));
+      const wsData = wsJson.data || wsJson;
+      if (wsData && Array.isArray(wsData.files)) files = wsData.files.filter(f => typeof f === 'string');
     } catch {}
-    if (task) {
-      const got = extractFinalText(task);
-      if (got) fullText = got; // 实时更新为最新完整文字
-      const isRunning = (task.isRunning !== undefined) ? task.isRunning
-                      : (task.data && task.data.isRunning);
-      if (isRunning === false) break; // 任务结束
+    // 2b) 报告文件存在就读取内容
+    const hasReport = files.some(f => f === REPORT_FILE_NAME || f.endsWith('/' + REPORT_FILE_NAME));
+    if (hasReport) {
+      try {
+        const pfResp = await fetch(`${BASE}/api/ai_task/previewFile`, {
+          method: 'POST',
+          headers: { ...authHeader, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ taskId: newTaskId, fileName: REPORT_FILE_NAME })
+        });
+        const pfJson = await pfResp.json().catch(() => ({}));
+        const pfData = pfJson.data || pfJson;
+        const content = (pfData && typeof pfData.content === 'string') ? pfData.content : '';
+        if (content.trim()) { fullText = content; break; }
+      } catch {}
     }
   }
 
-  // 4) 关闭 SSE 连接
-  if (sseReader) { try { sseReader.cancel(); } catch {} }
-  if (drain) { try { await drain; } catch {} }
-
   if (!fullText) {
-    fullText = '（任务已结束，但未能从返回中解析到文字，请到 InfiniSynapse 后台查看任务）';
+    fullText = '（任务已结束，但工作区未找到结果文件，请到 InfiniSynapse 后台查看任务）';
   }
-  return { reply: fullText, taskId: newTaskId, errored };
+  return { reply: fullText, taskId: newTaskId, errored: false };
 }
 
 // 根据前端提交的内容，拼出给 AI 的学习指令
@@ -252,7 +251,12 @@ async function buildPrompt({ subject, pdfBase64, tutorialText, fileName }) {
     parts.push('（我暂时没有提供具体资料，请根据这个领域的一般学习路径来规划）');
   }
 
-  const instruction = `\n请基于以上资料，为我列一份清晰、可直接照着执行的学习计划：按阶段或天数划分，说明每个阶段学什么、重点是什么、建议投入多少时间。如果资料不足，请结合该领域的通用学习路径来规划。用中文、条理清晰。`;
+  const instruction = `\n请基于以上资料，为我列一份清晰、可直接照着执行的学习计划：按阶段或天数划分，说明每个阶段学什么、重点是什么、建议投入多少时间。如果资料不足，请结合该领域的通用学习路径来规划。用中文、条理清晰。
+
+结果文件要求：
+1. 必须在任务工作区根目录生成 Markdown 文件：${REPORT_FILE_NAME}
+2. 文件内容就是上面这份学习计划本身。
+3. 直接开始执行，不要只做空泛介绍。`;
   return parts.join('\n\n') + instruction;
 }
 
