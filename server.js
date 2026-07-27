@@ -205,7 +205,7 @@ async function buildPrompt({ subject, pdfBase64, tutorialText, fileName }) {
     parts.push('（我暂时没有提供具体资料，请根据这个领域的一般学习路径来规划）');
   }
 
-  const instruction = `\n请基于以上资料，帮我制定一份 7 天学习计划：每天学哪部分、重点是什么、出 3 道思考题帮我检验掌握程度。如果资料不足，请结合该领域的通用学习路径来规划。用中文、条理清晰。`;
+  const instruction = `\n请基于以上资料，为我列一份清晰、可直接照着执行的学习计划：按阶段或天数划分，说明每个阶段学什么、重点是什么、建议投入多少时间。如果资料不足，请结合该领域的通用学习路径来规划。用中文、条理清晰。`;
   return parts.join('\n\n') + instruction;
 }
 

@@ -1,8 +1,8 @@
-# 新领域教学助手
+# 学习计划助手
 
 参加 InfiniSynapse × CSDN「Vibe Coding 泛数据分析应用开发大赛」的作品。
 
-**它干嘛的**：输入你想学的知识（一个领域/主题），上传教材 PDF 或教程，手把手带你学——拆成每天计划、标重点、出思考题，你每天打卡，它跟踪进度、提醒下一步。
+**它干嘛的**：输入你想学的知识（一个领域/主题），上传教材 PDF 或教程，AI 帮你列一份清晰可执行的阶段学习计划：每个阶段学什么、重点是什么、建议投入多少时间。
 
 **登录方式**：接入官方「**使用 InfiniSynapse 登录**」(Partner SSO)。访客点一下跳去 InfiniSynapse 官网用**自己的账号**授权登录，后端拿到该访客的专属 API Key（记在访客自己账号下），之后调用消耗的是**访客自己的额度，不花作者钱**。访客的 Key 只在服务端、加密存放在 http-only cookie 里，前端 JS 读不到，符合"不在前端直连 InfiniSynapse"的安全底线。
 
@@ -109,7 +109,7 @@
 
 打开 https://infinisynapse.cn/contest/vibe-coding/register ，填写：
 - 应用名：新领域教学助手
-- 简介：输入想学的知识 + 上传教材/教程（PDF 或 .txt/.md），生成 7 天学习计划、重点与思考题，支持打卡跟踪进度；访客用 InfiniSynapse 账号登录后使用，消耗各自额度
+- 简介：输入想学的知识 + 上传教材/教程（PDF 或 .txt/.md），AI 列一份清晰可执行的阶段学习计划（每阶段学什么、重点、建议投入时间）；访客用 InfiniSynapse 账号登录后使用，消耗各自额度
 - 作品网址：你的 `xxx.vercel.app`
 - 接口集成说明：接入「使用 InfiniSynapse 登录」(Partner SSO)，访客授权后后端以其专属 API Key 调用 InfiniSynapse Server API（先 `GET /api/ai/events` 建 SSE，再 `POST /api/ai/message` 发 newTask/askResponse 生成学习计划并多轮追问）
 - 代码仓库：（可选）

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>新领域教学助手</title>
+<title>学习计划助手</title>
 <style>
   * { box-sizing: border-box; }
   body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; max-width: 760px; margin: 0 auto; padding: 20px; background: #f7f8fa; color: #222; }
@@ -31,8 +31,8 @@
 </style>
 </head>
 <body>
-  <h1>新领域教学助手</h1>
-  <div class="sub">输入你想学的知识，上传教材或教程，手把手带你学：拆计划、标重点、出思考题、打卡跟踪进度。</div>
+  <h1>学习计划助手</h1>
+  <div class="sub">输入你想学的知识，上传教材或教程，AI 帮你列一份清晰可执行的阶段学习计划：每个阶段学什么、重点是什么、建议投入多少时间。</div>
 
   <!-- 登录卡片：访客用 InfiniSynapse 账号登录（自己的额度） -->
   <div class="card" id="loginCard">
@@ -65,15 +65,6 @@
   </div>
 
   <div class="card">
-    <div class="progress" id="progress">已打卡：0 天</div>
-    <label>学完第几天后，问下一步</label>
-    <div class="row">
-      <div><input type="text" id="dayInput" placeholder="例如：1"></div>
-      <div style="flex:0 0 auto"><button class="ghost" id="nextBtn" onclick="nextStep()">下一步学什么</button></div>
-    </div>
-  </div>
-
-  <div class="card">
     <label>AI 输出</label>
     <div class="out" id="output">（结果会显示在这里）</div>
     <div class="err" id="err"></div>
@@ -91,37 +82,30 @@
       const loginArea = document.getElementById('loginArea');
       const userArea = document.getElementById('userArea');
       const genBtn = document.getElementById('genBtn');
-      const nextBtn = document.getElementById('nextBtn');
       if (loggedIn) {
         loginArea.style.display = 'none';
         userArea.style.display = 'block';
         const name = (data.user && (data.user.nickname || data.user.email)) || '已登录';
         document.getElementById('userBadge').textContent = '已登录：' + name;
-        genBtn.disabled = false; nextBtn.disabled = false;
+        genBtn.disabled = false;
       } else {
         loginArea.style.display = 'block';
         userArea.style.display = 'none';
-        genBtn.disabled = true; nextBtn.disabled = true;
+        genBtn.disabled = true;
       }
     } catch {
       // 拿不到登录态就当作未登录
       loggedIn = false;
       document.getElementById('genBtn').disabled = true;
-      document.getElementById('nextBtn').disabled = true;
     }
   }
 
-  // 进度存在浏览器本地，刷新不丢
+  // 会话用的 taskId 来自后端多轮上下文
   let taskId = null;
   let pdfBase64 = null;     // 选了 PDF 时存 base64
   let tutorialText = '';    // 选了 .txt/.md 时存文字
   let uploadedFile = '';    // 当前已选文件名
 
-  function loadProgress() {
-    const d = parseInt(localStorage.getItem('xy_progress') || '0', 10);
-    document.getElementById('progress').textContent = '已打卡：' + d + ' 天';
-  }
-  loadProgress();
   refreshLogin();
 
   // 把 ArrayBuffer 转成 base64 字符串
@@ -203,35 +187,9 @@
     try {
       const reply = await postChat(subject);
       outEl.textContent = reply || '（未返回内容，请到 InfiniSynapse 后台查看任务）';
-      localStorage.setItem('xy_progress', '0');
-      loadProgress();
     } catch (e) {
       errEl.textContent = '出错：' + e.message;
       outEl.textContent = '';
-    } finally {
-      btn.disabled = false;
-    }
-  }
-
-  async function nextStep() {
-    if (!loggedIn) { document.getElementById('err').textContent = '请先登录。'; return; }
-    const day = document.getElementById('dayInput').value.trim();
-    const errEl = document.getElementById('err');
-    const outEl = document.getElementById('output');
-    const btn = document.getElementById('nextBtn');
-    errEl.textContent = '';
-    if (!day) { errEl.textContent = '请填写学完第几天。'; return; }
-    if (!taskId) { errEl.textContent = '请先点「生成学习计划」再打卡。'; return; }
-    btn.disabled = true; outEl.textContent = '正在生成下一步建议…';
-    try {
-      const text = `我已经学完了第 ${day} 天的内容。请告诉我：下一步该学什么、之前的重点有哪些需要复习，并出 1 道综合题。`;
-      const reply = await postChat(text);
-      outEl.textContent = reply || '（未返回内容）';
-      const d = parseInt(day, 10);
-      localStorage.setItem('xy_progress', String(d));
-      loadProgress();
-    } catch (e) {
-      errEl.textContent = '出错：' + e.message;
     } finally {
       btn.disabled = false;
     }
