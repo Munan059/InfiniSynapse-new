@@ -28,6 +28,15 @@
   input[type=file] { font-size: 13px; }
   .badge { display:inline-block; font-size:12px; color:#2d6cdf; background:#eaf1fc; border-radius:6px; padding:2px 8px; margin-left:6px;}
   a { color: #2d6cdf; text-decoration: none; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 50; }
+  .modal-box { background: #fff; border-radius: 12px; padding: 20px; width: 320px; max-width: 86vw; box-shadow: 0 8px 30px rgba(0,0,0,.18); }
+  .modal-text { font-size: 14px; line-height: 1.6; color: #222; margin-bottom: 18px; }
+  .modal-actions { display: flex; gap: 12px; }
+  .modal-actions button { flex: 1; margin-top: 0; padding: 10px 0; border-radius: 8px; font-size: 14px; cursor: pointer; border: 1px solid transparent; }
+  .btn-cancel { background: #fff; color: #333; border: 1px solid #d0d5dd; }
+  .btn-cancel:hover { background: #f2f4f7; }
+  .btn-confirm { background: #16a34a; color: #fff; }
+  .btn-confirm:hover { background: #15803d; }
 </style>
 </head>
 <body>
@@ -38,7 +47,7 @@
   <div class="card" id="loginCard">
     <label>🔑 登录后使用（用的是你自己的 InfiniSynapse 额度，不花作者钱）</label>
     <div id="loginArea">
-      <a href="/login"><button type="button" class="login">使用 InfiniSynapse 登录</button></a>
+      <button type="button" class="login" onclick="openLoginConfirm()">使用 InfiniSynapse 登录</button>
       <div class="hint">点一下会跳到 InfiniSynapse 官网用你的账号授权登录（没有账号也能在登录页注册，送 500 积分）。登录后消耗的是你自己的额度，作者看不到你的 Key。</div>
     </div>
     <div id="userArea" style="display:none">
@@ -70,7 +79,29 @@
     <div class="err" id="err"></div>
   </div>
 
+<!-- 登录确认弹窗 -->
+<div id="loginModal" class="modal-overlay" style="display:none" onclick="if(event.target===this) closeLoginConfirm()">
+  <div class="modal-box">
+    <div class="modal-text">确认使用 InfiniSynapse 账号登录吗？<br>登录后消耗的是你自己的额度，作者看不到你的 Key。</div>
+    <div class="modal-actions">
+      <button type="button" class="btn-cancel" onclick="closeLoginConfirm()">取消</button>
+      <button type="button" class="btn-confirm" onclick="confirmLogin()">确认</button>
+    </div>
+  </div>
+</div>
+
 <script>
+  // ===== 登录确认弹窗 =====
+  function openLoginConfirm() {
+    document.getElementById('loginModal').style.display = 'flex';
+  }
+  function closeLoginConfirm() {
+    document.getElementById('loginModal').style.display = 'none';
+  }
+  function confirmLogin() {
+    window.location.href = '/login';
+  }
+
   // ===== 登录态：加载时问后端当前是否登录 =====
   let loggedIn = false;
 
