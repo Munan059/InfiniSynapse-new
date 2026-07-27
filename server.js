@@ -133,6 +133,17 @@ async function extractPdf(base64) {
   return (result.text || '').trim();
 }
 
+// 从一条 SSE 消息对象里取出助手回复文字（兼容 text / content 字符串 / content 数组 多种格式）
+function msgText(msg) {
+  if (!msg) return '';
+  if (typeof msg.text === 'string') return msg.text;
+  if (typeof msg.content === 'string') return msg.content;
+  if (Array.isArray(msg.content)) {
+    return msg.content.map(b => (b && typeof b.text === 'string') ? b.text : '').join('');
+  }
+  return '';
+}
+
 // 调用 InfiniSynapse：先建 SSE 连接，再发消息，从 SSE 流收集文本直到任务完成
 async function callInfini(text, taskId, apiKey) {
   if (!apiKey) throw new Error('未登录：请先点击「使用 InfiniSynapse 登录」登录后再使用（用你自己的额度，不花作者钱）');
@@ -195,11 +206,16 @@ async function callInfini(text, taskId, apiKey) {
           finished = true;
           break;
         }
-        const msg = data.message;
+        const msg = data.message || data;
         if (!msg) continue;
-        if (msg.partial) fullText = msg.text || '';
-        else if (msg.text) fullText += msg.text;
-        if (msg.say === 'completion_result' || msg.ask === 'completion_result') finished = true;
+        const piece = msgText(msg);
+        if (msg.partial) {
+          fullText = piece; // 流式 partial 一般为「到目前为止的全文快照」，直接覆盖
+        } else if (piece) {
+          // 非 partial 的完成事件：仅当它比已收集文本更完整时才覆盖，避免与快照重复拼接
+          if (piece.length > fullText.length) fullText = piece;
+        }
+        if (msg.say === 'completion_result' || msg.ask === 'completion_result' || msg.type === 'completion_result' || data.type === 'completion_result') finished = true;
       }
     }
   } finally {
