@@ -134,11 +134,10 @@ async function extractPdf(base64) {
   return (result.text || '').trim();
 }
 
-// 调用 InfiniSynapse：发任务 → 轮询任务工作区里的「报告文件」拿最终文字
-// 关键修正：InfiniSynapse 的 AI 不会把最终答案塞进 messages 文本里，
-// 而是把答案写成工作区根目录的一个 Markdown 文件（约定文件名见 REPORT_FILE_NAME）。
-// 正确链路（来自官方 web-demo /agent-client.ts）：
-//   发任务 → 轮询 getTaskWorkspace 看文件是否生成 → previewFile 读 data.content → 作为最终文字回传。
+// 调用 InfiniSynapse：发任务 → 轮询"工作区文件"和"UI 消息"两条路，哪条先拿到答案用哪条
+// 官方给出两条取最终结果的路子（Server API Reference 10.4/10.5）：
+//   A) 工作区文件：getTaskWorkspace 发现 .md → previewFile 读 data.content（最完整，优先）
+//   B) UI 消息：getUiMessageById 取最新一条 partial!==true 的消息 text（兜底，不依赖 AI 写文件）
 async function callInfini(text, taskId, apiKey) {
   if (!apiKey) throw new Error('未登录：请先点击「使用 InfiniSynapse 登录」登录后再使用（用你自己的额度，不花作者钱）');
   const authHeader = { 'Authorization': `Bearer ${apiKey}` };
@@ -153,7 +152,7 @@ async function callInfini(text, taskId, apiKey) {
     connId,
   };
   if (!taskId) {
-    // 新任务：开启自动审批，让 AI 自主跑完、把计划写进文件（不必等人点确认）
+    // 新任务：开启自动审批，让 AI 自主跑完（不必等人点确认）
     body.images = [];
     body.autoApprovalSettings = {
       enabled: true,
@@ -191,41 +190,63 @@ async function callInfini(text, taskId, apiKey) {
     throw new Error('InfiniSynapse 拒绝任务：' + msg);
   }
 
-  // 2) 轮询任务工作区：等报告文件出现，再读取其内容
+  // 2) 轮询两条路：文件优先，消息兜底
   let fullText = '';
   const POLL_INTERVAL = 2000;
-  const MAX_POLLS = 26; // 约 53s，给 Vercel 60s 函数超时留余量
+  const MAX_POLLS = 26; // 约 53s，给 Vercel 函数超时留余量
   for (let i = 0; i < MAX_POLLS; i++) {
     await new Promise(r => setTimeout(r, i === 0 ? 800 : POLL_INTERVAL));
-    // 2a) 取工作区文件列表
-    let files = [];
+
+    // 2a) 路子 B：UI 消息（兜底，不依赖 AI 写文件）
+    let msgText = '';
+    try {
+      const uiResp = await fetch(`${BASE}/api/ai_task/getUiMessageById?id=${encodeURIComponent(newTaskId)}`, {
+        headers: authHeader
+      });
+      const uiJson = await uiResp.json().catch(() => ({}));
+      const uiData = (uiJson && uiJson.data !== undefined) ? uiJson.data : uiJson;
+      const arr = Array.isArray(uiData) ? uiData : [];
+      // 倒着找：最新一条 partial!==true 且不是 ask 的消息，取它的 text
+      for (let j = arr.length - 1; j >= 0; j--) {
+        const m = arr[j];
+        if (!m || typeof m !== 'object') continue;
+        if (m.partial === true) continue;
+        if (m.type === 'ask') continue;
+        if (typeof m.text === 'string' && m.text.trim()) { msgText = m.text.trim(); break; }
+      }
+    } catch {}
+
+    // 2b) 路子 A：工作区 .md 文件（优先，最完整）
+    let fileText = '';
     try {
       const wsResp = await fetch(`${BASE}/api/ai_task/getTaskWorkspace/${encodeURIComponent(newTaskId)}`, {
         headers: authHeader
       });
       const wsJson = await wsResp.json().catch(() => ({}));
       const wsData = wsJson.data || wsJson;
-      if (wsData && Array.isArray(wsData.files)) files = wsData.files.filter(f => typeof f === 'string');
-    } catch {}
-    // 2b) 报告文件存在就读取内容
-    const hasReport = files.some(f => f === REPORT_FILE_NAME || f.endsWith('/' + REPORT_FILE_NAME));
-    if (hasReport) {
-      try {
+      const files = (wsData && Array.isArray(wsData.files)) ? wsData.files.filter(f => typeof f === 'string') : [];
+      // 优先我们的固定文件名，否则认任意 .md
+      const md = files.find(f => f === REPORT_FILE_NAME || f.endsWith('/' + REPORT_FILE_NAME))
+              || files.find(f => f.toLowerCase().endsWith('.md'));
+      if (md) {
         const pfResp = await fetch(`${BASE}/api/ai_task/previewFile`, {
           method: 'POST',
           headers: { ...authHeader, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ taskId: newTaskId, fileName: REPORT_FILE_NAME })
+          body: JSON.stringify({ taskId: newTaskId, fileName: md })
         });
         const pfJson = await pfResp.json().catch(() => ({}));
         const pfData = pfJson.data || pfJson;
-        const content = (pfData && typeof pfData.content === 'string') ? pfData.content : '';
-        if (content.trim()) { fullText = content; break; }
-      } catch {}
-    }
+        if (pfData && typeof pfData.content === 'string') fileText = pfData.content.trim();
+      }
+    } catch {}
+
+    // 文件优先；没有文件才用消息文本
+    if (fileText) { fullText = fileText; break; }
+    if (msgText) { fullText = msgText; break; }
   }
 
   if (!fullText) {
-    fullText = '（任务已结束，但工作区未找到结果文件，请到 InfiniSynapse 后台查看任务）';
+    fullText = '（任务已结束，但既没在工作区找到结果文件，也没在消息里取到最终答案，请到 InfiniSynapse 后台查看任务）';
   }
   return { reply: fullText, taskId: newTaskId, errored: false };
 }
