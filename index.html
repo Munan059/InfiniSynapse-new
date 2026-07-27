@@ -45,10 +45,9 @@
 
   <!-- 登录卡片：访客用 InfiniSynapse 账号登录（自己的额度） -->
   <div class="card" id="loginCard">
-    <label>🔑 登录后使用（用的是你自己的 InfiniSynapse 额度，不花作者钱）</label>
+    <label>🔑 登录后使用</label>
     <div id="loginArea">
       <button type="button" class="login" onclick="openLoginConfirm()">使用 InfiniSynapse 登录</button>
-      <div class="hint">点一下会跳到 InfiniSynapse 官网用你的账号授权登录（没有账号也能在登录页注册，送 500 积分）。登录后消耗的是你自己的额度，作者看不到你的 Key。</div>
     </div>
     <div id="userArea" style="display:none">
       <span class="badge" id="userBadge"></span>
@@ -163,7 +162,7 @@
         const buf = await file.arrayBuffer();
         pdfBase64 = arrayBufferToBase64(buf);
         uploadedFile = file.name;
-        document.getElementById('fileName').innerHTML = '已选 PDF：' + file.name + '<span class="badge">将抽取文字发给 AI</span>';
+        document.getElementById('fileName').innerHTML = '已选 PDF：' + file.name;
       } else if (ext === 'txt' || ext === 'md' || ext === 'text') {
         tutorialText = await file.text();
         uploadedFile = file.name;
