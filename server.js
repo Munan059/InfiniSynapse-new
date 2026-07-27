@@ -210,7 +210,7 @@ async function callInfini(text, taskId, apiKey) {
       const uiData = (uiJson && uiJson.data !== undefined) ? uiJson.data : uiJson;
       const arr = Array.isArray(uiData) ? uiData
         : (uiData && Array.isArray(uiData.messages) ? uiData.messages : []);
-      msgText = extractAnswerFromMessages(arr);
+      msgText = extractAnswerFromMessages(arr, text);
       lastDiag = `消息数=${arr.length} 类型=${(arr.map(m => (m && m.type) || '?').join(','))}`;
     } catch (e) {
       console.error('[取消息失败]', (e && e.message) || e);
@@ -255,23 +255,34 @@ async function callInfini(text, taskId, apiKey) {
   return { reply: fullText, taskId: newTaskId, errored: false };
 }
 
-// 判断一条消息是不是"用户发出的请求"（要跳过，不能当答案）
-function isRequestMessage(m) {
+// 判断一条消息是不是"用户发出的请求 / 提示词回声"（要跳过，不能当答案）
+function isRequestMessage(m, sentText) {
   if (!m || typeof m !== 'object') return false;
   if (m.request != null) return true;                                  // 官方把用户请求包在 request 字段里
   const t = typeof m.text === 'string' ? m.text : '';
+  if (!t) return false;
   if (t.startsWith('{"request"')) return true;                         // 回声也是请求
-  if (t.includes('<task>') && t.includes('结果文件要求')) return true; // 我们的提示词原样回来了
+  if (t.includes('<task>')) return true;                               // 早期的 task 包裹格式
+  // 我们的指令签名：只会出现在我们发出的提示词里，"真实学习计划"里绝不会同时出现这两句
+  if (t.includes('结果文件要求') && t.includes('study-plan.md')) return true;
+  // buildPrompt 拼的引导语：资料回显的特征，真实答案不会这么写
+  if (t.includes('我上传的学习资料') || t.includes('我提供的教程内容')) return true;
+  // 兜底：收到的消息基本就是发出的那一整段提示词（回声），按开头 120 字精确比对
+  if (sentText) {
+    const norm = s => s.replace(/\s+/g, '');
+    const a = norm(sentText), b = norm(t);
+    if (a && b && b.length >= a.length * 0.85 && a.slice(0, 120) === b.slice(0, 120)) return true;
+  }
   return false;
 }
 
 // 从 UI 消息数组里取最终答案：跳过请求消息和 ask 类型，取最新一条有文字的消息
 // （优先 partial!==true 的已完成消息；没有则接受 partial 消息，因为流式消息本身就是全文快照）
-function extractAnswerFromMessages(arr) {
+function extractAnswerFromMessages(arr, sentText) {
   if (!Array.isArray(arr) || !arr.length) return '';
   const candidates = arr.filter(m =>
     m && typeof m === 'object' &&
-    !isRequestMessage(m) &&
+    !isRequestMessage(m, sentText) &&
     m.type !== 'ask' &&
     typeof m.text === 'string' && m.text.trim()
   );
@@ -282,7 +293,7 @@ function extractAnswerFromMessages(arr) {
   pool.sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
   const ans = pool[pool.length - 1].text.trim();
   // 兜底：万一还是取到了请求（极少），丢弃
-  if (ans.startsWith('{"request"') || (ans.includes('<task>') && ans.includes('结果文件要求'))) return '';
+  if (ans.startsWith('{"request"') || (ans.includes('结果文件要求') && ans.includes('study-plan.md'))) return '';
   return ans;
 }
 
@@ -327,6 +338,8 @@ async function buildPrompt({ subject, pdfBase64, tutorialText, fileName }) {
   }
 
   const instruction = `\n请基于以上资料，为我列一份清晰、可直接照着执行的学习计划：按阶段或天数划分，说明每个阶段学什么、重点是什么、建议投入多少时间。如果资料不足，请结合该领域的通用学习路径来规划。用中文、条理清晰。
+
+重要：不要复述或回显上面任何资料原文，也不要原样返回本段指令，直接输出学习计划正文即可。
 
 结果文件要求：
 1. 必须在任务工作区根目录生成 Markdown 文件：${REPORT_FILE_NAME}
