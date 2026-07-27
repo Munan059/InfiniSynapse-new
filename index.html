@@ -184,9 +184,15 @@
       <div class="col" id="loginCard">
         <div class="step"><span class="num">01</span><span class="title">你的输入</span></div>
 
-        <label>登录后使用</label>
+        <label>登录后使用（任选一种）</label>
         <div id="loginArea">
-          <button type="button" class="login" style="width:100%" onclick="openLoginConfirm()">使用 InfiniSynapse 登录</button>
+          <button type="button" class="login" id="ssoBtn" style="width:100%" onclick="openLoginConfirm()">使用 InfiniSynapse 账号登录</button>
+          <div class="hint" style="text-align:center;margin:10px 0 2px;">— 或者 —</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="password" id="keyInput" placeholder="粘贴你自己的 InfiniSynapse API Key" style="flex:1">
+            <button type="button" class="ghost" style="padding:9px 14px;white-space:nowrap;" onclick="saveKey()">保存 Key</button>
+          </div>
+          <div class="hint" id="keyHint"></div>
         </div>
         <div id="userArea" style="display:none">
           <span class="badge" id="userBadge2"></span>
@@ -261,17 +267,25 @@
     window.location.href = '/login';
   }
 
-  // ===== 登录态：加载时问后端当前是否登录 =====
-  let loggedIn = false;
+  // ===== 登录态：SSO 会话 + 本地 Key 两种模式 =====
+  let loggedIn = false;   // SSO 登录态（来自后端 cookie）
+  let hasKey = false;     // 本地浏览器里存了访客自己的 Key
+  let ssoEnabled = true;  // 后端是否配置了 SSO 凭证
+
+  function updateGenBtn() {
+    document.getElementById('genBtn').disabled = !(loggedIn || hasKey);
+  }
 
   async function refreshLogin() {
     try {
       const resp = await fetch('/api/me');
       const data = await resp.json();
+      ssoEnabled = !!data.ssoEnabled;
       loggedIn = !!data.loggedIn;
+      const ssoBtn = document.getElementById('ssoBtn');
+      if (ssoBtn) ssoBtn.style.display = (data.ssoEnabled !== false) ? 'block' : 'none';
       const loginArea = document.getElementById('loginArea');
       const userArea = document.getElementById('userArea');
-      const genBtn = document.getElementById('genBtn');
       const topStatus = document.getElementById('topStatus');
       if (loggedIn) {
         loginArea.style.display = 'none';
@@ -280,23 +294,38 @@
         document.getElementById('userBadge').textContent = '已登录：' + name;
         document.getElementById('userBadge2').textContent = '已登录：' + name;
         topStatus.style.display = 'none';
-        genBtn.disabled = false;
       } else {
         loginArea.style.display = 'block';
         userArea.style.display = 'none';
         topStatus.style.display = 'inline';
         topStatus.textContent = '未登录';
-        genBtn.disabled = true;
       }
     } catch {
       loggedIn = false;
-      document.getElementById('genBtn').disabled = true;
+      document.getElementById('loginArea').style.display = 'block';
     }
+    hasKey = !!localStorage.getItem('infiniKey');
+    updateGenBtn();
   }
 
-  // 会话用的 taskId 来自后端多轮上下文
-  let taskId = null;
-  let pdfBase64 = null;
+  function saveKey() {
+    const v = document.getElementById('keyInput').value.trim();
+    if (!v) { document.getElementById('keyHint').textContent = '请先粘贴 Key 再保存。'; return; }
+    localStorage.setItem('infiniKey', v);
+    hasKey = true;
+    document.getElementById('keyHint').textContent = '已保存（只存在你这个浏览器里，作者看不到）。';
+    document.getElementById('keyInput').value = '';
+    updateGenBtn();
+  }
+  function clearKey() {
+    localStorage.removeItem('infiniKey');
+    hasKey = false;
+    document.getElementById('keyHint').textContent = '';
+    updateGenBtn();
+  }
+
+  // 会话状态变量
+  let pdfText = '';        // PDF 在浏览器里抽出的文字
   let tutorialText = '';
   let uploadedFile = '';
   let lastReplyRaw = '';
@@ -315,29 +344,39 @@
   window.addEventListener('resize', syncOutputHeight);
   window.addEventListener('DOMContentLoaded', syncOutputHeight);
 
-  function arrayBufferToBase64(buf) {
-    let binary = '';
-    const bytes = new Uint8Array(buf);
-    const chunk = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunk) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  // 用 pdfjs 在浏览器里抽 PDF 文字（不依赖服务端）
+  async function extractPdfText(buf) {
+    if (typeof pdfjsLib === 'undefined') throw new Error('PDF 解析组件未加载，请刷新页面，或改用 .txt/.md');
+    pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.js';
+    const doc = await pdfjsLib.getDocument({ data: buf }).promise;
+    let text = '';
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent();
+      text += content.items.map(it => it.str).join(' ') + '\n';
     }
-    return btoa(binary);
+    return text;
   }
 
   document.getElementById('fileInput').addEventListener('change', async (e) => {
     const errEl = document.getElementById('err');
     errEl.textContent = '';
     const file = e.target.files[0];
-    pdfBase64 = null; tutorialText = '';
+    pdfText = ''; tutorialText = '';
     if (!file) { document.getElementById('fileName').textContent = ''; return; }
     const ext = file.name.toLowerCase().split('.').pop();
     try {
       if (ext === 'pdf') {
         const buf = await file.arrayBuffer();
-        pdfBase64 = arrayBufferToBase64(buf);
+        try {
+          pdfText = await extractPdfText(buf);
+        } catch (pe) {
+          errEl.textContent = 'PDF 解析失败：' + pe.message + '（可改用 .txt/.md，或把文字粘到下方文本框）';
+          document.getElementById('fileName').textContent = '';
+          return;
+        }
         uploadedFile = file.name;
-        document.getElementById('fileName').innerHTML = '已选 PDF：' + file.name;
+        document.getElementById('fileName').innerHTML = '已选 PDF：' + file.name + '<span class="badge">文字已读入</span>';
       } else if (ext === 'txt' || ext === 'md' || ext === 'text') {
         tutorialText = await file.text();
         uploadedFile = file.name;
@@ -352,28 +391,7 @@
     }
   });
 
-  async function postChat(text) {
-    let resp;
-    try {
-      resp = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subject: text, pdfBase64, tutorialText, fileName: uploadedFile, taskId })
-      });
-    } catch (e) {
-      throw new Error('网络请求失败（可能服务端没启动或已崩溃）：' + e.message);
-    }
-    let data;
-    try {
-      data = await resp.json();
-    } catch {
-      const txt = await resp.text().catch(() => '');
-      throw new Error('服务端返回了非 JSON 内容：' + (txt.slice(0, 300) || '（空响应）'));
-    }
-    if (data.error) throw new Error(data.error);
-    taskId = data.taskId;
-    return data.reply;
-  }
+  // postChat 已改为 generate() 内联的「发任务 + 轮询」流程，见下方 generate()。
 
   function renderMarkdown(md) {
     if (typeof marked === 'undefined') return '';
@@ -435,7 +453,6 @@
 
   async function generate() {
     const subject = document.getElementById('subject').value.trim();
-    if (!loggedIn) { document.getElementById('err').textContent = '请先点上方「使用 InfiniSynapse 登录」登录后再生成（用自己的额度）。'; return; }
     tutorialText = document.getElementById('tutorial').value.trim() || tutorialText;
     const errEl = document.getElementById('err');
     const outEl = document.getElementById('output');
@@ -443,21 +460,48 @@
     const btn = document.getElementById('genBtn');
     const copyBtn = document.getElementById('copyBtn');
     const dlBtn = document.getElementById('dlBtn');
+    const pdfBtn = document.getElementById('pdfBtn');
     errEl.textContent = '';
-    if (!subject && !pdfBase64 && !tutorialText) {
+    if (!loggedIn && !hasKey) {
+      errEl.textContent = '请先登录（点上方按钮），或在登录框里粘贴你自己的 InfiniSynapse API Key。';
+      return;
+    }
+    if (!subject && !pdfText && !tutorialText) {
       errEl.textContent = '请至少填写想学的知识，或上传 PDF / 教程。';
       return;
     }
-    btn.disabled = true;
-    copyBtn.disabled = true;
-    dlBtn.disabled = true;
-    loadingEl.style.display = 'flex';
-    outEl.style.display = 'none';
+    btn.disabled = true; copyBtn.disabled = true; dlBtn.disabled = true; pdfBtn.disabled = true;
+    loadingEl.style.display = 'flex'; outEl.style.display = 'none';
     try {
-      const reply = await postChat(subject);
+      // 1) 开新任务，拿到 taskId（很快）
+      const apiKey = hasKey ? localStorage.getItem('infiniKey') : undefined;
+      const chatResp = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject, pdfText, tutorialText, fileName: uploadedFile, apiKey })
+      });
+      const chatData = await chatResp.json().catch(() => ({}));
+      if (!chatResp.ok || chatData.error) throw new Error(chatData.error || ('启动失败（HTTP ' + chatResp.status + '）'));
+      const taskId = chatData.taskId;
+      if (!taskId) throw new Error('未返回任务 ID，请重试。');
+
+      // 2) 轮询直到完成（前端反复问后端，后端每次只查一两秒，避免单次请求超时）
+      let reply = '';
+      let polls = 0;
+      const MAX_POLLS = 45; // 约 45×2.5s ≈ 112s
+      while (polls < MAX_POLLS) {
+        polls++;
+        await new Promise(r => setTimeout(r, 2500));
+        const pResp = await fetch('/api/poll?taskId=' + encodeURIComponent(taskId));
+        const pData = await pResp.json().catch(() => ({}));
+        if (pData.error) throw new Error(pData.error);
+        if (pData.reply) reply = pData.reply; // 累积最新最佳结果
+        if (pData.done) break;
+      }
+
       lastReplyRaw = reply || '';
       if (!reply) {
-        outEl.innerHTML = '<div class="placeholder">（未返回内容，请到 InfiniSynapse 后台查看任务）</div>';
+        outEl.innerHTML = '<div class="placeholder">（任务结束但未取到内容，请到 InfiniSynapse 后台查看任务）</div>';
       } else if (typeof marked !== 'undefined') {
         outEl.innerHTML = renderMarkdown(reply);
       } else {
