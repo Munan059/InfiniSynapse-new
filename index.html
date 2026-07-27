@@ -18,7 +18,22 @@
   button.ghost { background: #eee; color: #333; }
   button.login { background: #16a34a; }
   .progress { font-size: 14px; color: #2d6cdf; font-weight: 600; margin: 6px 0; }
-  .out { white-space: pre-wrap; line-height: 1.7; font-size: 14px; background: #fafbfc; border: 1px solid #eee; border-radius: 8px; padding: 12px; min-height: 60px; }
+  .out { white-space: normal; line-height: 1.7; font-size: 14px; background: #fafbfc; border: 1px solid #eee; border-radius: 8px; padding: 12px; min-height: 60px; word-break: break-word; overflow-wrap: anywhere; }
+  .out h1, .out h2, .out h3, .out h4 { margin: 16px 0 8px; line-height: 1.35; }
+  .out h1 { font-size: 20px; border-bottom: 1px solid #eee; padding-bottom: 6px; }
+  .out h2 { font-size: 18px; }
+  .out h3 { font-size: 16px; }
+  .out p { margin: 8px 0; }
+  .out ul, .out ol { margin: 8px 0; padding-left: 22px; }
+  .out li { margin: 4px 0; }
+  .out code { background: #f0f2e6; padding: 1px 5px; border-radius: 4px; font-family: Consolas, "Courier New", monospace; font-size: 13px; }
+  .out pre { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 8px; overflow-x: auto; }
+  .out pre code { background: none; color: inherit; padding: 0; }
+  .out blockquote { border-left: 3px solid #cfd8e3; margin: 8px 0; padding: 4px 12px; color: #555; background: #f7f9fc; }
+  .out a { color: #2d6cdf; text-decoration: underline; }
+  .out table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+  .out th, .out td { border: 1px solid #ddd; padding: 6px 8px; }
+  .out strong { font-weight: 700; }
   .hint { font-size: 12px; color: #999; margin-top: 4px; }
   .row { display: flex; gap: 10px; align-items: flex-end; }
   .row > div { flex: 1; }
@@ -38,6 +53,9 @@
   .btn-confirm { background: #16a34a; color: #fff; }
   .btn-confirm:hover { background: #15803d; }
 </style>
+<!-- 本地 Markdown 渲染库（与站点同源，国内访问稳定）：marked 把 # 标题/**加粗** 等转成排版好的 HTML，DOMPurify 过滤危险代码 -->
+<script src="/vendor/marked.min.js"></script>
+<script src="/vendor/purify.min.js"></script>
 </head>
 <body>
   <h1>学习计划助手</h1>
@@ -200,6 +218,14 @@
     return data.reply;
   }
 
+  // 把 Markdown 文本渲染成安全、排版正确的 HTML（# 标题、**加粗**、- 列表 等都会正确显示，不再裸露 # 号）
+  function renderMarkdown(md) {
+    if (typeof marked === 'undefined') return '';          // 库没加载成功就返回空，交给下方兜底逻辑显示原文
+    const rawHtml = marked.parse(md || '');
+    if (typeof DOMPurify !== 'undefined') return DOMPurify.sanitize(rawHtml);
+    return rawHtml;
+  }
+
   async function generate() {
     const subject = document.getElementById('subject').value.trim();
     if (!loggedIn) { document.getElementById('err').textContent = '请先点上方「使用 InfiniSynapse 登录」登录后再生成（用自己的额度）。'; return; }
@@ -216,7 +242,13 @@
     btn.disabled = true; outEl.textContent = '正在读取资料并生成学习计划，请稍候（首次可能要十几秒）…';
     try {
       const reply = await postChat(subject);
-      outEl.textContent = reply || '（未返回内容，请到 InfiniSynapse 后台查看任务）';
+      if (!reply) {
+        outEl.textContent = '（未返回内容，请到 InfiniSynapse 后台查看任务）';
+      } else if (typeof marked !== 'undefined') {
+        outEl.innerHTML = renderMarkdown(reply);   // 渲染 Markdown：排版正确，# 号不再裸露
+      } else {
+        outEl.textContent = reply;                 // 库加载失败时的兜底：至少把原文显示出来
+      }
     } catch (e) {
       errEl.textContent = '出错：' + e.message;
       outEl.textContent = '';

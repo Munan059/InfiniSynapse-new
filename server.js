@@ -428,6 +428,25 @@ async function handler(req, res) {
     return;
   }
 
+  // 托管前端本地脚本（marked / dompurify）：与站点同源，避免外部 CDN 国内被墙
+  if (req.method === 'GET' && req.url.split('?')[0].startsWith('/vendor/')) {
+    const safe = path.normalize(req.url.split('?')[0].replace(/^\/vendor\/?/, '')).replace(/^(\.\.[/\\])+/, '');
+    const filePath = path.join(__dirname, 'vendor', safe);
+    if (!filePath.startsWith(path.join(__dirname, 'vendor'))) {
+      res.writeHead(403); res.end('forbidden'); return;
+    }
+    fs.readFile(filePath, (err, data) => {
+      if (err) { res.writeHead(404); res.end('not found'); return; }
+      const ext = path.extname(filePath).toLowerCase();
+      const ct = ext === '.js' ? 'application/javascript; charset=utf-8'
+               : ext === '.css' ? 'text/css; charset=utf-8'
+               : 'application/octet-stream';
+      res.writeHead(200, { 'Content-Type': ct });
+      res.end(data);
+    });
+    return;
+  }
+
   // ===== 登录相关路由（Partner SSO）=====
   // ① 发起登录：创建会话，把访客重定向到 InfiniSynapse 授权页
   if (req.method === 'GET' && req.url.startsWith('/login')) {
