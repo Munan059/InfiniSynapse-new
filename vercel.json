@@ -1,1 +1,1 @@
-{"version": 2, "builds": [{"src": "server.js", "use": "@vercel/node", "config": {"includeFiles": ["index.html", "vendor/marked.min.js", "vendor/purify.min.js"], "maxDuration": 60}}], "routes": [{"src": "/(.*)", "dest": "server.js"}]}
+{"version": 2, "builds": [{"src": "server.js", "use": "@vercel/node", "config": {"includeFiles": ["index.html", "vendor/marked.min.js", "vendor/purify.min.js", "vendor/html2pdf.bundle.min.js"], "maxDuration": 60}}], "routes": [{"src": "/(.*)", "dest": "server.js"}]}

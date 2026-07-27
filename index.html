@@ -210,6 +210,7 @@
           <div class="out-actions">
             <button type="button" class="btn-mini" id="copyBtn" disabled onclick="copyResult()">复制</button>
             <button type="button" class="btn-mini" id="dlBtn" disabled onclick="downloadMd()">下载 .md</button>
+            <button type="button" class="btn-mini" id="pdfBtn" disabled onclick="downloadPdf()">下载 PDF</button>
           </div>
         </div>
         <div class="out" id="output">
@@ -240,6 +241,7 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
+<script src="/vendor/html2pdf.bundle.min.js"></script>
 <script>
   // ===== 登录确认弹窗 =====
   function openLoginConfirm() {
@@ -387,6 +389,31 @@
     URL.revokeObjectURL(url);
   }
 
+  function downloadPdf() {
+    if (!lastReplyRaw) return;
+    const btn = document.getElementById('pdfBtn');
+    const old = btn.textContent;
+    btn.textContent = '生成中…';
+    btn.disabled = true;
+    const el = document.getElementById('output');
+    const name = (document.getElementById('subject').value.trim() || '学习计划').replace(/[\\/:*?"<>|]/g, '');
+    const opt = {
+      margin: 12,
+      filename: name + '.pdf',
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, backgroundColor: '#ffffff', useCORS: true },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    };
+    html2pdf().set(opt).from(el).save().then(function () {
+      btn.textContent = old;
+      btn.disabled = false;
+    }).catch(function (e) {
+      btn.textContent = old;
+      btn.disabled = false;
+      alert('PDF 生成失败：' + (e && e.message ? e.message : e));
+    });
+  }
+
   async function generate() {
     const subject = document.getElementById('subject').value.trim();
     if (!loggedIn) { document.getElementById('err').textContent = '请先点上方「使用 InfiniSynapse 登录」登录后再生成（用自己的额度）。'; return; }
@@ -417,7 +444,7 @@
       } else {
         outEl.textContent = reply;
       }
-      if (reply) { copyBtn.disabled = false; dlBtn.disabled = false; }
+      if (reply) { copyBtn.disabled = false; dlBtn.disabled = false; pdfBtn.disabled = false; }
     } catch (e) {
       errEl.textContent = '出错：' + e.message;
       outEl.innerHTML = '';

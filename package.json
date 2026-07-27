@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "dompurify": "^3.4.12",
+    "html2pdf.js": "^0.14.0",
     "marked": "^18.0.7",
     "pdf-parse": "^1.1.4"
   },
