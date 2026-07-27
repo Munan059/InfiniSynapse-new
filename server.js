@@ -192,12 +192,15 @@ async function callInfini(text, taskId, apiKey) {
 
   // 2) 轮询两条路：文件优先，消息兜底
   let fullText = '';
+  let lastDiag = '';
   const POLL_INTERVAL = 2000;
   const MAX_POLLS = 26; // 约 53s，给 Vercel 函数超时留余量
   for (let i = 0; i < MAX_POLLS; i++) {
     await new Promise(r => setTimeout(r, i === 0 ? 800 : POLL_INTERVAL));
 
     // 2a) 路子 B：UI 消息（兜底，不依赖 AI 写文件）
+    // 修正：最终答案可能在 partial===true 的消息里（流式消息即全文快照），不能只认 partial!==true；
+    //      同时必须跳过"用户自己的请求"消息（它的 text 就是我们发出的那一大段提示词，会被误当答案）。
     let msgText = '';
     try {
       const uiResp = await fetch(`${BASE}/api/ai_task/getUiMessageById?id=${encodeURIComponent(newTaskId)}`, {
@@ -205,16 +208,13 @@ async function callInfini(text, taskId, apiKey) {
       });
       const uiJson = await uiResp.json().catch(() => ({}));
       const uiData = (uiJson && uiJson.data !== undefined) ? uiJson.data : uiJson;
-      const arr = Array.isArray(uiData) ? uiData : [];
-      // 倒着找：最新一条 partial!==true 且不是 ask 的消息，取它的 text
-      for (let j = arr.length - 1; j >= 0; j--) {
-        const m = arr[j];
-        if (!m || typeof m !== 'object') continue;
-        if (m.partial === true) continue;
-        if (m.type === 'ask') continue;
-        if (typeof m.text === 'string' && m.text.trim()) { msgText = m.text.trim(); break; }
-      }
-    } catch {}
+      const arr = Array.isArray(uiData) ? uiData
+        : (uiData && Array.isArray(uiData.messages) ? uiData.messages : []);
+      msgText = extractAnswerFromMessages(arr);
+      lastDiag = `消息数=${arr.length} 类型=${(arr.map(m => (m && m.type) || '?').join(','))}`;
+    } catch (e) {
+      console.error('[取消息失败]', (e && e.message) || e);
+    }
 
     // 2b) 路子 A：工作区 .md 文件（优先，最完整）
     let fileText = '';
@@ -224,10 +224,11 @@ async function callInfini(text, taskId, apiKey) {
       });
       const wsJson = await wsResp.json().catch(() => ({}));
       const wsData = wsJson.data || wsJson;
-      const files = (wsData && Array.isArray(wsData.files)) ? wsData.files.filter(f => typeof f === 'string') : [];
-      // 优先我们的固定文件名，否则认任意 .md
-      const md = files.find(f => f === REPORT_FILE_NAME || f.endsWith('/' + REPORT_FILE_NAME))
-              || files.find(f => f.toLowerCase().endsWith('.md'));
+      const fileList = collectFiles(wsData);
+      lastDiag += ` | 文件数=${fileList.length}`;
+      // 优先我们的固定文件名，否则认任意 .md（AI 可能起了别的名字）
+      const md = fileList.find(f => f.split('/').pop() === REPORT_FILE_NAME)
+              || fileList.find(f => f.toLowerCase().endsWith('.md'));
       if (md) {
         const pfResp = await fetch(`${BASE}/api/ai_task/previewFile`, {
           method: 'POST',
@@ -238,7 +239,9 @@ async function callInfini(text, taskId, apiKey) {
         const pfData = pfJson.data || pfJson;
         if (pfData && typeof pfData.content === 'string') fileText = pfData.content.trim();
       }
-    } catch {}
+    } catch (e) {
+      console.error('[取文件失败]', (e && e.message) || e);
+    }
 
     // 文件优先；没有文件才用消息文本
     if (fileText) { fullText = fileText; break; }
@@ -246,9 +249,60 @@ async function callInfini(text, taskId, apiKey) {
   }
 
   if (!fullText) {
+    console.error('[诊断] 两轮都没取到答案。', lastDiag);
     fullText = '（任务已结束，但既没在工作区找到结果文件，也没在消息里取到最终答案，请到 InfiniSynapse 后台查看任务）';
   }
   return { reply: fullText, taskId: newTaskId, errored: false };
+}
+
+// 判断一条消息是不是"用户发出的请求"（要跳过，不能当答案）
+function isRequestMessage(m) {
+  if (!m || typeof m !== 'object') return false;
+  if (m.request != null) return true;                                  // 官方把用户请求包在 request 字段里
+  const t = typeof m.text === 'string' ? m.text : '';
+  if (t.startsWith('{"request"')) return true;                         // 回声也是请求
+  if (t.includes('<task>') && t.includes('结果文件要求')) return true; // 我们的提示词原样回来了
+  return false;
+}
+
+// 从 UI 消息数组里取最终答案：跳过请求消息和 ask 类型，取最新一条有文字的消息
+// （优先 partial!==true 的已完成消息；没有则接受 partial 消息，因为流式消息本身就是全文快照）
+function extractAnswerFromMessages(arr) {
+  if (!Array.isArray(arr) || !arr.length) return '';
+  const candidates = arr.filter(m =>
+    m && typeof m === 'object' &&
+    !isRequestMessage(m) &&
+    m.type !== 'ask' &&
+    typeof m.text === 'string' && m.text.trim()
+  );
+  if (!candidates.length) return '';
+  const completed = candidates.filter(m => m.partial !== true);
+  const pool = completed.length ? completed : candidates;
+  // 按 ts 取最新一条（与消息数组顺序无关）
+  pool.sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
+  const ans = pool[pool.length - 1].text.trim();
+  // 兜底：万一还是取到了请求（极少），丢弃
+  if (ans.startsWith('{"request"') || (ans.includes('<task>') && ans.includes('结果文件要求'))) return '';
+  return ans;
+}
+
+// 从 getTaskWorkspace 的 files 结构里抽出所有文件名（兼容 字符串数组 / 对象数组 / 树状结构）
+function collectFiles(wsData) {
+  const out = [];
+  const walk = (node) => {
+    if (!node) return;
+    if (typeof node === 'string') { out.push(node); return; }
+    if (Array.isArray(node)) { node.forEach(walk); return; }
+    if (typeof node === 'object') {
+      const nm = node.path || node.name || node.fileName || (typeof node.title === 'string' ? node.title : '');
+      if (typeof nm === 'string' && nm) out.push(nm);
+      if (Array.isArray(node.files)) node.files.forEach(walk);
+      if (Array.isArray(node.children)) node.children.forEach(walk);
+    }
+  };
+  if (wsData && wsData.files !== undefined) walk(wsData.files);
+  else walk(wsData); // 兜底：files 可能直接在 data 根
+  return [...new Set(out)];
 }
 
 // 根据前端提交的内容，拼出给 AI 的学习指令
