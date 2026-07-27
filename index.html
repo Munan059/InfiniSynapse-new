@@ -52,8 +52,8 @@
 
   /* ===== 双栏主体（细线分区，非浮卡） ===== */
   .wrap { max-width: 1120px; margin: 0 auto; padding: 8px 28px 24px; }
-  .cols { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 20px; overflow: hidden; background: #fff; align-items: stretch; }
-  .col { padding: 32px 36px; display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+  .cols { display: flex; align-items: flex-start; border: 1px solid var(--line); border-radius: 20px; overflow: hidden; background: #fff; }
+  .col { flex: 1 1 0; min-width: 0; padding: 32px 36px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
   .col + .col { border-left: 1px solid var(--line); }
 
   /* 大号序号分区标题（呼应参考站的 01 / 02） */
@@ -95,7 +95,7 @@
   .btn-mini:hover:not(:disabled) { background: var(--blue-hover); }
   .btn-mini:disabled { background: #c3d2fb; color: #fff; cursor: not-allowed; }
 
-  .out { line-height: 1.65; font-size: 14.5px; color: var(--ink); background: var(--bg-soft); border: 1px solid var(--line); border-radius: 14px; padding: 22px 24px; min-height: 440px; flex: 1 1 auto; align-self: stretch; min-height: 0; overflow-y: auto; word-break: break-word; overflow-wrap: anywhere; }
+  .out { line-height: 1.65; font-size: 14.5px; color: var(--ink); background: var(--bg-soft); border: 1px solid var(--line); border-radius: 14px; padding: 22px 24px; flex: 1 1 auto; min-height: 0; align-self: stretch; overflow-y: auto; word-break: break-word; overflow-wrap: anywhere; }
   .out .placeholder { color: var(--gray); font-size: 14px; }
   .out h1, .out h2, .out h3, .out h4 { margin: 22px 0 10px; line-height: 1.35; font-weight: 700; letter-spacing: -.01em; }
   .out h1:first-child, .out h2:first-child, .out h3:first-child { margin-top: 0; }
@@ -149,7 +149,7 @@
   .foot b { color: var(--ink); font-weight: 600; }
 
   @media (max-width: 900px) {
-    .cols { grid-template-columns: 1fr; }
+    .cols { flex-direction: column; }
     .col + .col { border-left: none; border-top: 1px solid var(--line); }
     .hero h1 { font-size: 32px; }
   }
@@ -302,6 +302,18 @@
   let lastReplyRaw = '';
 
   refreshLogin();
+
+  // 让右侧输出栏的高度精确等于左侧输入栏，长内容在灰色框内滚动，页面不随之拉长
+  function syncOutputHeight() {
+    if (window.innerWidth <= 900) return; // 移动端上下堆叠，不强制等高
+    const left = document.getElementById('loginCard');
+    const right = document.querySelectorAll('.col')[1];
+    if (!left || !right) return;
+    right.style.height = left.offsetHeight + 'px';
+  }
+  window.addEventListener('load', syncOutputHeight);
+  window.addEventListener('resize', syncOutputHeight);
+  window.addEventListener('DOMContentLoaded', syncOutputHeight);
 
   function arrayBufferToBase64(buf) {
     let binary = '';
@@ -459,6 +471,7 @@
       loadingEl.style.display = 'none';
       outEl.style.display = 'block';
       btn.disabled = false;
+      syncOutputHeight();
     }
   }
 </script>
