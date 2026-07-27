@@ -95,6 +95,32 @@ async function partnerReq(path, body) {
   return { status: resp.status, json };
 }
 
+// 从 partner 接口返回的 JSON 里找授权/跳转地址（兼容字段名不确定的情况）
+function pickEntryUrl(json) {
+  if (!json) return null;
+  const d = json.data;
+  if (typeof d === 'string' && /^https?:\/\//.test(d)) return d;
+  const candidates = ['entryUrl', 'url', 'authorizeUrl', 'authUrl', 'redirectUrl', 'loginUrl', 'link'];
+  if (d && typeof d === 'object') {
+    for (const k of candidates) if (typeof d[k] === 'string' && /^https?:\/\//.test(d[k])) return d[k];
+  }
+  for (const k of candidates) if (typeof json[k] === 'string' && /^https?:\/\//.test(json[k])) return json[k];
+  return findInfiniUrl(json); // 兜底：递归找第一个像授权页的 URL
+}
+// 兜底：在返回 JSON 任意层级里找第一个像 InfiniSynapse 授权页的 URL
+function findInfiniUrl(obj) {
+  if (!obj || typeof obj !== 'object') return null;
+  if (typeof obj === 'string') {
+    if (/^https?:\/\/[^\s"']*infinisynapse\.(cn|com)[^\s"']*(auth|oauth|login|partner|sso|session)/i.test(obj)) return obj;
+    return null;
+  }
+  for (const v of Object.values(obj)) {
+    const r = findInfiniUrl(v);
+    if (r) return r;
+  }
+  return null;
+}
+
 // 从 base64 抽取 PDF 文字
 async function extractPdf(base64) {
   if (!pdfParse) {
@@ -242,13 +268,18 @@ async function handler(req, res) {
       return;
     }
     const { status, json } = sess;
-    if (status !== 200 || !json.data || !json.data.entryUrl) {
+    console.log('[partner/sessions] HTTP', status, 'code=', json && json.code, 'message=', json && json.message);
+    // 统一信封：{ code:200, message:"success", data:{...} }，成功看 code===200（不是 HTTP 状态码）
+    const ok = (json && (json.code === 200 || status === 200)) && (json.message === 'success' || json.code === 200);
+    const entryUrl = pickEntryUrl(json);
+    if (!ok || !entryUrl) {
+      const errMsg = (json && (json.message || (json.data && json.data.message))) || ('HTTP ' + status);
       res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('创建登录会话失败：' + (json.message || '未知错误'));
+      res.end('创建登录会话失败：' + (errMsg === 'success' ? '接口返回成功，但未在返回里找到授权地址（请联系开发者看日志）' : errMsg));
       return;
     }
     res.writeHead(302, {
-      'Location': json.data.entryUrl,
+      'Location': entryUrl,
       'Set-Cookie': `xy_oauth_state=${state}; ${cookieFlags(600)}`,
     });
     res.end();
@@ -282,13 +313,15 @@ async function handler(req, res) {
       return;
     }
     const { status, json } = tok;
-    if (status !== 200 || !json.data) {
+    console.log('[partner/token] HTTP', status, 'code=', json && json.code, 'hasApiKey=', !!(json && json.data && (json.data.apiKey || json.data.key || json.data.token)));
+    const ok = (json && (json.code === 200 || status === 200)) && (json.message === 'success' || json.code === 200);
+    if (!ok || !json.data) {
       res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('换取用户信息失败：' + (json.message || '未知错误'));
+      res.end('换取用户信息失败：' + ((json && (json.message || (json.data && json.data.message))) || ('HTTP ' + status)));
       return;
     }
-    const user = json.data.user || {};
-    const apiKey = json.data.apiKey;
+    const user = json.data.user || json.user || {};
+    const apiKey = json.data.apiKey || json.data.key || json.apiKey || json.data.token || json.token;
     if (!apiKey) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end('<p>登录成功，但未能签发你的专属 API Key（可能你的 InfiniSynapse API Key 数量已达上限 20 个）。</p>' +
