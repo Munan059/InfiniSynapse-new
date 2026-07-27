@@ -190,18 +190,28 @@ async function callInfini(text, taskId, apiKey) {
     throw new Error('InfiniSynapse 拒绝任务：' + msg);
   }
 
-  // 2) 轮询两条路：文件优先，消息兜底
+  // 2) 轮询两条路：文件优先，消息兜底（但必须等任务真正完成或结果可靠才返回）
+  //
+  // 官方文档（10.5 组合原则）明确：
+  //   - 任务完成的标志是 completion_result 信号（message.say/ask = completion_result）
+  //   - getUiMessageById 返回的是"精简 UI 消息"，仅用于恢复界面，不应作为最终交付物
+  //   - 交付物应优先用工作区文件（getTaskWorkspace + previewFile）
+  //
+  // 之前的 bug：只要 extractAnswerFromMessages 返回任何非空字符串就立即 break，
+  //            导致 AI 正在生成的 partial 片段（如"用户想要我基于..."半句话）被当答案提前返回。
+  // 修复：引入 completion_result 检测 + 最小答案长度门槛 + "耐心等待文件"策略。
   let fullText = '';
   let lastDiag = '';
   const POLL_INTERVAL = 2000;
-  const MAX_POLLS = 26; // 约 53s，给 Vercel 函数超时留余量
+  const MAX_POLLS = 35;       // 约 70s（Vercel Pro 上限 60s 时可适当调低；Hobby 10s 则靠前端重试）
+  const MIN_ANSWER_LEN = 80;  // 答案低于此长度几乎可以确定是 partial 片段，不作为最终结果
+  let bestMsgText = '';       // 记住轮询过程中见过的最长合法消息（兜底用）
+  let completed = false;      // 是否检测到 completion_result 完成信号
+
   for (let i = 0; i < MAX_POLLS; i++) {
     await new Promise(r => setTimeout(r, i === 0 ? 800 : POLL_INTERVAL));
 
-    // 2a) 路子 B：UI 消息（兜底，不依赖 AI 写文件）
-    // 修正：最终答案可能在 partial===true 的消息里（流式消息即全文快照），不能只认 partial!==true；
-    //      同时必须跳过"用户自己的请求"消息（它的 text 就是我们发出的那一大段提示词，会被误当答案）。
-    let msgText = '';
+    // 2a) 检测任务是否已完成（completion_result 信号）
     try {
       const uiResp = await fetch(`${BASE}/api/ai_task/getUiMessageById?id=${encodeURIComponent(newTaskId)}`, {
         headers: authHeader
@@ -210,13 +220,30 @@ async function callInfini(text, taskId, apiKey) {
       const uiData = (uiJson && uiJson.data !== undefined) ? uiJson.data : uiJson;
       const arr = Array.isArray(uiData) ? uiData
         : (uiData && Array.isArray(uiData.messages) ? uiData.messages : []);
-      msgText = extractAnswerFromMessages(arr, text);
-      lastDiag = `消息数=${arr.length} 类型=${(arr.map(m => (m && m.type) || '?').join(','))}`;
+
+      // 检查是否有 completion_result 完成信号（官方推荐的任务完成标志）
+      if (!completed) {
+        completed = arr.some(m =>
+          m && (
+            (m.say === 'completion_result') ||
+            (m.ask === 'completion_result') ||
+            (m.type === 'say' && m.completion_result) ||
+            (m.type === 'ask' && m.completion_result)
+          )
+        );
+      }
+
+      // 提取候选答案消息（跳过回声和 ask 类型）
+      const candidate = extractAnswerFromMessages(arr, text);
+      if (candidate && candidate.length > bestMsgText.length) {
+        bestMsgText = candidate; // 始终保留最长的那条
+      }
+      lastDiag = `消息数=${arr.length} 完成=${completed} 最佳消息长=${bestMsgText.length}`;
     } catch (e) {
       console.error('[取消息失败]', (e && e.message) || e);
     }
 
-    // 2b) 路子 A：工作区 .md 文件（优先，最完整）
+    // 2b) 工作区 .md 文件（最可靠的交付物，官方首推）
     let fileText = '';
     try {
       const wsResp = await fetch(`${BASE}/api/ai_task/getTaskWorkspace/${encodeURIComponent(newTaskId)}`, {
@@ -226,7 +253,6 @@ async function callInfini(text, taskId, apiKey) {
       const wsData = wsJson.data || wsJson;
       const fileList = collectFiles(wsData);
       lastDiag += ` | 文件数=${fileList.length}`;
-      // 优先我们的固定文件名，否则认任意 .md（AI 可能起了别的名字）
       const md = fileList.find(f => f.split('/').pop() === REPORT_FILE_NAME)
               || fileList.find(f => f.toLowerCase().endsWith('.md'));
       if (md) {
@@ -243,14 +269,47 @@ async function callInfini(text, taskId, apiKey) {
       console.error('[取文件失败]', (e && e.message) || e);
     }
 
-    // 文件优先；没有文件才用消息文本
-    if (fileText) { fullText = fileText; break; }
-    if (msgText) { fullText = msgText; break; }
+    // ===== 退出条件判断（核心修复）=====
+    if (fileText) {
+      // 有文件 → 最可靠，立即返回
+      fullText = fileText;
+      break;
+    }
+
+    if (completed) {
+      // 已检测到 completion_result 但还没拿到文件 → 再等一轮让文件写入（AI 刚标记完成，文件可能还在写磁盘）
+      if (i < MAX_POLLS - 3) {
+        await new Promise(r => setTimeout(r, 1500)); // 多等 1.5s
+        continue; // 下一轮重新尝试取文件
+      }
+      // 最后几轮了，实在没文件就用最佳消息
+      if (bestMsgText.length >= MIN_ANSWER_LEN) {
+        fullText = bestMsgText;
+        break;
+      }
+    }
+
+    // 未完成状态：即使有消息也不轻易返回（避免 partial 片段被当答案）
+    // 只有消息足够长且已经轮询了较长时间（给 AI 充足生成时间）才考虑接受
+    if (!completed && bestMsgText.length >= MIN_ANSWER_LEN && i >= Math.floor(MAX_POLLS * 0.6)) {
+      // 已经等了很久、消息也够长，可能是 AI 不写文件的情况（纯对话式回答）
+      // 再等两轮看看会不会出文件
+      if (i >= MAX_POLLS - 3) {
+        fullText = bestMsgText;
+        break;
+      }
+    }
   }
 
   if (!fullText) {
-    console.error('[诊断] 两轮都没取到答案。', lastDiag);
-    fullText = '（任务已结束，但既没在工作区找到结果文件，也没在消息里取到最终答案，请到 InfiniSynapse 后台查看任务）';
+    // 最终都没拿到可靠结果
+    if (bestMsgText.length > 0) {
+      // 有消息但不满足长度/完成条件 → 可能是超时了，把能拿到的最好结果返回（带提示）
+      fullText = bestMsgText + '\n\n（注：以上内容可能不完整，建议到 InfiniSynapse 后台查看完整结果）';
+    } else {
+      console.error('[诊断] 轮询结束未取到答案。', lastDiag);
+      fullText = '（任务已结束，但既没在工作区找到结果文件，也没在消息里取到最终答案，请到 InfiniSynapse 后台查看任务）';
+    }
   }
   return { reply: fullText, taskId: newTaskId, errored: false };
 }
@@ -276,22 +335,33 @@ function isRequestMessage(m, sentText) {
   return false;
 }
 
-// 从 UI 消息数组里取最终答案：跳过请求消息和 ask 类型，取最新一条有文字的消息
-// （优先 partial!==true 的已完成消息；没有则接受 partial 消息，因为流式消息本身就是全文快照）
+// 判断一条消息是不是 AI 的"思考 / 规划过程"（内心独白，不是最终交付物，不能当答案）
+// 典型特征：以"用户想要我…""我需要…""让我先…"开头，且篇幅较短（真正的计划很长）
+function isThinkingMessage(m) {
+  const t = (typeof m.text === 'string' ? m.text : '').trim();
+  if (!t) return false;
+  // 只在较短时判定为思考过程，避免误伤长答案
+  if (t.length >= 400) return false;
+  const low = t.toLowerCase();
+  const thinkPrefixes = ['用户想要', '用户希望', '我需要', '让我先', '让我来', '我打算', '我计划', '我将', '接下来我', '首先我', '根据您', '基于您', '好的，', '收到，', '现在我来', '让我分析'];
+  return thinkPrefixes.some(p => low.startsWith(p));
+}
+
+// 从 UI 消息数组里取最终答案：跳过请求消息、思考过程、ask 类型，
+// 取【最长】的一条有文字消息（真正的学习计划通常最长最完整；思考过程/片段都较短）
 function extractAnswerFromMessages(arr, sentText) {
   if (!Array.isArray(arr) || !arr.length) return '';
   const candidates = arr.filter(m =>
     m && typeof m === 'object' &&
     !isRequestMessage(m, sentText) &&
+    !isThinkingMessage(m) &&
     m.type !== 'ask' &&
     typeof m.text === 'string' && m.text.trim()
   );
   if (!candidates.length) return '';
-  const completed = candidates.filter(m => m.partial !== true);
-  const pool = completed.length ? completed : candidates;
-  // 按 ts 取最新一条（与消息数组顺序无关）
-  pool.sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
-  const ans = pool[pool.length - 1].text.trim();
+  // 取最长的一条作为答案（真实计划/答案通常最长最完整）
+  candidates.sort((a, b) => b.text.trim().length - a.text.trim().length);
+  const ans = candidates[0].text.trim();
   // 兜底：万一还是取到了请求（极少），丢弃
   if (ans.startsWith('{"request"') || (ans.includes('结果文件要求') && ans.includes('study-plan.md'))) return '';
   return ans;
@@ -339,11 +409,9 @@ async function buildPrompt({ subject, pdfBase64, tutorialText, fileName }) {
 
   const instruction = `\n请基于以上资料，为我列一份清晰、可直接照着执行的学习计划：按阶段或天数划分，说明每个阶段学什么、重点是什么、建议投入多少时间。如果资料不足，请结合该领域的通用学习路径来规划。用中文、条理清晰。
 
-重要：不要复述或回显上面任何资料原文，也不要原样返回本段指令，直接输出学习计划正文即可。
-
-结果文件要求：
-1. 必须在任务工作区根目录生成 Markdown 文件：${REPORT_FILE_NAME}
-2. 文件内容就是上面这份学习计划本身。
+重要（务必遵守）：
+1. 把上面这份完整的学习计划写入工作区根目录的 Markdown 文件：${REPORT_FILE_NAME}，这是你要交付的成果，用户最终看到的就是这个文件的内容。
+2. 不要在对话消息里复述资料原文，也不要输出你的思考 / 规划过程（例如"用户想要我…""我需要…""让我先…"这类内部独白）。对话里只需一句简短确认（如"学习计划已生成，见 ${REPORT_FILE_NAME}"）即可。
 3. 直接开始执行，不要只做空泛介绍。`;
   return parts.join('\n\n') + instruction;
 }
