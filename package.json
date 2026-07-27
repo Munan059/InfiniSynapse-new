@@ -1,0 +1,15 @@
+{
+  "name": "xinlingyu-jiaoxue-zhushou",
+  "version": "1.0.0",
+  "description": "新领域教学助手 - InfiniSynapse Vibe Coding 参赛作品",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "pdf-parse": "^1.1.4"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
