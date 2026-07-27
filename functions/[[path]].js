@@ -496,6 +496,20 @@ export async function onRequest(context) {
     if (request.method === 'GET' && path.startsWith('/login')) return await login(request, env);
     if (request.method === 'GET' && path.startsWith('/auth/infini/callback')) return await authCallback(request, env);
     if (request.method === 'GET' && path.startsWith('/logout')) return await logout(env);
+
+    // 兜底：凡是 GET 请求（且不是上面的接口），先试着按原路径找静态文件，
+    // 找不到就回退到 index.html 首页，避免出现「Not found」空白页。
+    if (request.method === 'GET') {
+      try {
+        const tryPath = path === '/' ? '/index.html' : path;
+        const asset = await env.ASSETS.fetch(new URL(tryPath, url.origin).toString());
+        if (asset && asset.ok) return asset;
+      } catch { /* 忽略，继续往下走 */ }
+      try {
+        const idx = await env.ASSETS.fetch(new URL('/index.html', url.origin).toString());
+        if (idx && idx.ok) return idx;
+      } catch { /* 忽略 */ }
+    }
     return new Response('Not found', { status: 404 });
   } catch (e) {
     console.error('[未捕获异常]', (e && e.stack) || e);
