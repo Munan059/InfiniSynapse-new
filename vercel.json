@@ -7,6 +7,9 @@
       "config": { "includeFiles": ["index.html"] }
     }
   ],
+  "functions": {
+    "server.js": { "maxDuration": 60 }
+  },
   "routes": [
     { "src": "/(.*)", "dest": "server.js" }
   ]

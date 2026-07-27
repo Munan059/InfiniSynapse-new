@@ -133,28 +133,53 @@ async function extractPdf(base64) {
   return (result.text || '').trim();
 }
 
-// 从一条 SSE 消息对象里取出助手回复文字（兼容 text / content 字符串 / content 数组 多种格式）
-function msgText(msg) {
-  if (!msg) return '';
-  if (typeof msg.text === 'string') return msg.text;
-  if (typeof msg.content === 'string') return msg.content;
-  if (Array.isArray(msg.content)) {
-    return msg.content.map(b => (b && typeof b.text === 'string') ? b.text : '').join('');
+// 从任务详情的 messages 数组里取出助手最终回复文字
+// InfiniSynapse 的 messages 元素结构：{ type: "say"|"ask", text: "..." }（无 role / 无 content 字段）
+function extractFinalText(task) {
+  if (!task) return '';
+  const msgs = task.messages || (task.data && task.data.messages) || [];
+  if (!Array.isArray(msgs) || msgs.length === 0) return '';
+  const textOf = (m) => {
+    if (!m) return '';
+    if (typeof m.text === 'string') return m.text;
+    if (m.message && typeof m.message.text === 'string') return m.message.text;
+    if (typeof m.content === 'string') return m.content;
+    return '';
+  };
+  // 1) 优先取带完成信号的消息
+  const comp = msgs.find(m => m && (m.say === 'completion_result' || (m.message && m.message.say === 'completion_result')));
+  if (comp) { const t = textOf(comp); if (t) return t; }
+  // 2) 取最后一条助手输出（type === 'say'）
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i];
+    if (m && (m.type === 'say' || (m.message && m.message.type === 'say'))) {
+      const t = textOf(m); if (t) return t;
+    }
+  }
+  // 3) 兜底：最后一条有文字的消息
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const t = textOf(msgs[i]); if (t) return t;
   }
   return '';
 }
 
-// 调用 InfiniSynapse：先建 SSE 连接，再发消息，从 SSE 流收集文本直到任务完成
+// 调用 InfiniSynapse：发任务 → 轮询任务结果接口拿最终文字（不解析 SSE 流，避免字段名不匹配）
 async function callInfini(text, taskId, apiKey) {
   if (!apiKey) throw new Error('未登录：请先点击「使用 InfiniSynapse 登录」登录后再使用（用你自己的额度，不花作者钱）');
   const connId = uuid();
   const authHeader = { 'Authorization': `Bearer ${apiKey}` };
 
-  // 1) 建立 SSE 长连接（先连后发，顺序不能反）
-  const sseResp = await fetch(`${BASE}/api/ai/events?connId=${connId}`, {
-    headers: { ...authHeader, 'Accept': 'text/event-stream' }
-  });
-  if (!sseResp.ok) throw new Error('连接 InfiniSynapse 失败，HTTP ' + sseResp.status + '（请检查登录态是否有效）');
+  // 1) 建立 SSE 长连接（保持连接，满足"先连后发"；但不解析流，仅后台排空保活）
+  let sseReader = null, drain = null;
+  try {
+    const sseResp = await fetch(`${BASE}/api/ai/events?connId=${connId}`, {
+      headers: { ...authHeader, 'Accept': 'text/event-stream' }
+    });
+    if (sseResp.ok && sseResp.body) {
+      sseReader = sseResp.body.getReader();
+      drain = (async () => { try { while (true) { const { done } = await sseReader.read(); if (done) break; } } catch {} })();
+    }
+  } catch {}
 
   // 2) 发送消息：有 taskId 则是多轮追问，否则新建任务
   const body = taskId
@@ -170,59 +195,39 @@ async function callInfini(text, taskId, apiKey) {
     throw new Error(`发送消息到 InfiniSynapse 失败，HTTP ${msgResp.status}：${errText.slice(0, 300) || '无返回内容'}`);
   }
   const msgData = await msgResp.json().catch(() => ({}));
-  const newTaskId = (msgData && msgData.data && msgData.data.taskId) || taskId;
+  const newTaskId = (msgData && msgData.data && (msgData.data.taskId || msgData.data.id)) || taskId;
+  if (!newTaskId) throw new Error('未能获取任务 ID，无法轮询结果（请到 InfiniSynapse 后台查看任务）');
 
-  // 3) 解析 SSE 流，累积 message.text，直到收到 completion_result
-  if (!sseResp.body) throw new Error('InfiniSynapse 未返回数据流（SSE body 为空），可能登录态失效或服务异常');
-  const reader = sseResp.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
+  // 3) 轮询任务结果：GET /api/ai_task/tasks?taskId= ，isRunning 变 false 即结束
   let fullText = '';
-  let finished = false;
   let errored = false;
-  const timeoutId = setTimeout(() => { finished = true; }, 90000); // 90 秒兜底
-
-  try {
-    while (!finished) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const events = buffer.split('\n\n');
-      buffer = events.pop() || '';
-      for (const ev of events) {
-        const lines = ev.split('\n');
-        let eventType = '';
-        let dataStr = '';
-        for (const line of lines) {
-          if (line.startsWith('event:')) eventType = line.slice(6).trim();
-          else if (line.startsWith('data:')) dataStr += line.slice(5).trim();
-        }
-        if (!dataStr) continue;
-        let data;
-        try { data = JSON.parse(dataStr); } catch { continue; }
-        if (eventType === 'notification' && data.type === 'error') {
-          errored = true;
-          fullText = '任务出错：' + (data.message || '未知错误');
-          finished = true;
-          break;
-        }
-        const msg = data.message || data;
-        if (!msg) continue;
-        const piece = msgText(msg);
-        if (msg.partial) {
-          fullText = piece; // 流式 partial 一般为「到目前为止的全文快照」，直接覆盖
-        } else if (piece) {
-          // 非 partial 的完成事件：仅当它比已收集文本更完整时才覆盖，避免与快照重复拼接
-          if (piece.length > fullText.length) fullText = piece;
-        }
-        if (msg.say === 'completion_result' || msg.ask === 'completion_result' || msg.type === 'completion_result' || data.type === 'completion_result') finished = true;
-      }
+  const POLL_INTERVAL = 2000;
+  const MAX_POLLS = 45; // 约 90 秒上限（受 Vercel 函数超时约束，vercel.json 已设为 60s）
+  for (let i = 0; i < MAX_POLLS; i++) {
+    await new Promise(r => setTimeout(r, i === 0 ? 1000 : POLL_INTERVAL));
+    let task = null;
+    try {
+      const tResp = await fetch(`${BASE}/api/ai_task/tasks?taskId=${encodeURIComponent(newTaskId)}`, {
+        headers: authHeader
+      });
+      if (tResp.ok) task = await tResp.json().catch(() => ({}));
+    } catch {}
+    if (task) {
+      const got = extractFinalText(task);
+      if (got) fullText = got; // 实时更新为最新完整文字
+      const isRunning = (task.isRunning !== undefined) ? task.isRunning
+                      : (task.data && task.data.isRunning);
+      if (isRunning === false) break; // 任务结束
     }
-  } finally {
-    clearTimeout(timeoutId);
-    try { reader.cancel(); } catch {}
   }
 
+  // 4) 关闭 SSE 连接
+  if (sseReader) { try { sseReader.cancel(); } catch {} }
+  if (drain) { try { await drain; } catch {} }
+
+  if (!fullText) {
+    fullText = '（任务已结束，但未能从返回中解析到文字，请到 InfiniSynapse 后台查看任务）';
+  }
   return { reply: fullText, taskId: newTaskId, errored };
 }
 
