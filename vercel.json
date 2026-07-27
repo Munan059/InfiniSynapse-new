@@ -9,6 +9,5 @@
   ],
   "routes": [
     { "src": "/(.*)", "dest": "server.js" }
-  ],
-  "maxDuration": 60
+  ]
 }
