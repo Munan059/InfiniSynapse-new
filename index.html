@@ -82,9 +82,13 @@
   button.login { background: var(--blue); }
   button.login:hover { background: var(--blue-hover); }
 
-  .filebox { border: 1px dashed #d7dbe2; border-radius: 12px; padding: 16px; background: var(--bg-soft); }
-  input[type=file] { font-size: 13px; width: 100%; }
-  .filename { font-size: 13px; color: var(--blue); margin-top: 8px; }
+  .filebox { border: 1px dashed #d7dbe2; border-radius: 12px; padding: 22px 16px 10px; background: var(--bg-soft); display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 10px; }
+  input[type=file] { display: none; }
+  /* 选择文件：做成和"已登录：xxx"一样的蓝色胶囊按钮 */
+  .file-pick { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--blue); background: var(--blue-soft); border-radius: 980px; padding: 9px 18px; cursor: pointer; user-select: none; transition: background .18s, transform .08s; }
+  .file-pick:hover { background: #e2e9ff; }
+  .file-pick:active { transform: scale(.98); }
+  .filename { font-size: 13px; color: var(--blue); margin: 0; }
   .hint { font-size: 12px; color: var(--gray); margin-top: 6px; }
   .badge { display: inline-block; font-size: 12px; color: var(--blue); background: var(--blue-soft); border-radius: 980px; padding: 2px 9px; margin-left: 6px; font-weight: 600; }
 
@@ -220,6 +224,7 @@
 
         <label>② 上传学习资料（PDF 教材，或 .txt/.md 教程）</label>
         <div class="filebox">
+          <label for="fileInput" class="file-pick" id="filePick">选择文件</label>
           <input type="file" id="fileInput" accept=".pdf,.txt,.md,.text">
           <div class="filename" id="fileName"></div>
         </div>
@@ -363,7 +368,7 @@
     errEl.textContent = '';
     const file = e.target.files[0];
     pdfText = ''; tutorialText = '';
-    if (!file) { document.getElementById('fileName').textContent = ''; return; }
+    if (!file) { document.getElementById('fileName').textContent = ''; document.getElementById('filePick').textContent = '选择文件'; return; }
     const ext = file.name.toLowerCase().split('.').pop();
     try {
       if (ext === 'pdf') {
@@ -376,10 +381,12 @@
           return;
         }
         uploadedFile = file.name;
+        document.getElementById('filePick').textContent = '重新选择文件';
         document.getElementById('fileName').innerHTML = '已选 PDF：' + file.name + '<span class="badge">文字已读入</span>';
       } else if (ext === 'txt' || ext === 'md' || ext === 'text') {
         tutorialText = await file.text();
         uploadedFile = file.name;
+        document.getElementById('filePick').textContent = '重新选择文件';
         document.getElementById('tutorial').value = tutorialText;
         document.getElementById('fileName').innerHTML = '已选教程：' + file.name + '<span class="badge">文字已读入</span>';
       } else {
