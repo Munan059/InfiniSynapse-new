@@ -42,18 +42,44 @@
   .topbar .status .badge { font-size: 12px; color: var(--blue); background: var(--blue-soft); border-radius: 980px; padding: 3px 10px; font-weight: 600; }
 
   /* ===== Hero 标题区 ===== */
-  .hero { max-width: 760px; margin: 0 auto; padding: 64px 24px 36px; text-align: center; }
+  .hero { max-width: 760px; margin: 0 auto; min-height: calc(100vh - 56px); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px; position: relative; }
   .hero .eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .12em; color: var(--blue); text-transform: uppercase; margin-bottom: 16px; }
   .hero h1 { font-size: 42px; font-weight: 700; letter-spacing: -.025em; line-height: 1.15; margin: 0 0 16px; }
   .hero h1 .hl { color: var(--blue); }
   .hero p { font-size: 17px; color: var(--gray); margin: 0 auto; max-width: 600px; }
   .hero .tags { margin-top: 22px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
   .pill { display: inline-block; font-size: 12px; font-weight: 600; color: var(--gray); background: var(--bg-soft); border: 1px solid var(--line); border-radius: 980px; padding: 5px 12px; }
+  /* 开屏首页底部的向下滚动引导 */
+  .scroll-hint { position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; color: var(--gray); }
+  .scroll-hint .arrow { width: 18px; height: 18px; border-right: 2px solid var(--gray); border-bottom: 2px solid var(--gray); transform: rotate(45deg); animation: bounce 1.6s infinite; }
+  @keyframes bounce { 0%,100% { transform: translateY(0) rotate(45deg); } 50% { transform: translateY(6px) rotate(45deg); } }
+
+  /* 开屏：背景浮动光晕 + 进场动画 + 主按钮 */
+  .hero { position: relative; isolation: isolate; overflow: hidden; }
+  .hero::before, .hero::after { content: ''; position: absolute; border-radius: 50%; filter: blur(24px); z-index: -1; }
+  .hero::before { width: 620px; height: 620px; background: radial-gradient(circle, rgba(47,107,255,.16), transparent 70%); top: -180px; left: -120px; animation: float1 16s ease-in-out infinite; }
+  .hero::after { width: 520px; height: 520px; background: radial-gradient(circle, rgba(91,139,255,.12), transparent 70%); bottom: -160px; right: -100px; animation: float2 20s ease-in-out infinite; }
+  @keyframes float1 { 0%,100% { transform: translate(0,0); } 50% { transform: translate(50px,40px); } }
+  @keyframes float2 { 0%,100% { transform: translate(0,0); } 50% { transform: translate(-40px,-30px); } }
+  .reveal { opacity: 0; transform: translateY(22px); animation: fadeUp .7s cubic-bezier(.22,.61,.36,1) forwards; }
+  @keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
+  .hero-stats { display: flex; gap: 40px; margin-top: 28px; }
+  .hero-stats .stat { text-align: center; }
+  .hero-stats .num { font-size: 30px; font-weight: 700; color: var(--ink); letter-spacing: -.02em; }
+  .hero-stats .lbl { font-size: 12px; color: var(--gray); margin-top: 4px; }
+  .hero-cta { margin-top: 30px; display: inline-flex; align-items: center; gap: 8px; font-family: inherit; font-size: 15px; font-weight: 600; color: #fff; background: linear-gradient(135deg, #2f6bff, #5b8bff); border: none; border-radius: 980px; padding: 14px 32px; cursor: pointer; box-shadow: 0 8px 24px rgba(47,107,255,.35); transition: transform .18s, box-shadow .18s; }
+  .hero-cta:hover { transform: translateY(-2px); box-shadow: 0 12px 32px rgba(47,107,255,.45); }
+  .hero-cta:active { transform: translateY(0) scale(.98); }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { animation: none; opacity: 1; transform: none; }
+    .hero::before, .hero::after, .scroll-hint .arrow { animation: none; }
+  }
 
   /* ===== 双栏主体（细线分区，非浮卡） ===== */
   .wrap { max-width: 1120px; margin: 0 auto; padding: 8px 28px 24px; }
   .cols { display: flex; align-items: flex-start; border: 1px solid var(--line); border-radius: 20px; overflow: hidden; background: #fff; }
   .col { flex: 1 1 0; min-width: 0; padding: 32px 36px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  #loginCard { scroll-margin-top: 75px; }
   .col + .col { border-left: 1px solid var(--line); }
 
   /* 大号序号分区标题（呼应参考站的 01 / 02） */
@@ -194,13 +220,21 @@
 
   <!-- Hero 标题区 -->
   <div class="hero">
-    <h1>把想学的，变成<span class="hl">可执行的计划</span>。</h1>
-    <p>输入你想学的知识，上传教材或教程，AI 帮你拆成清晰的阶段：每阶段学什么、重点是什么、投入多少时间。</p>
-    <div class="tags">
+    <span class="eyebrow reveal" style="animation-delay:.05s">AI 驱动 · 个性化学习路径</span>
+    <h1 class="reveal" style="animation-delay:.2s">把想学的，变成<span class="hl">可执行的计划</span>。</h1>
+    <p class="reveal" style="animation-delay:.35s">输入你想学的知识，上传教材或教程，AI 帮你拆成清晰的阶段：每阶段学什么、重点是什么、投入多少时间。</p>
+    <div class="hero-stats reveal" style="animation-delay:.5s">
+      <div class="stat"><div class="num">10x</div><div class="lbl">规划效率</div></div>
+      <div class="stat"><div class="num">100%</div><div class="lbl">可执行</div></div>
+      <div class="stat"><div class="num">0</div><div class="lbl">使用门槛</div></div>
+    </div>
+    <button type="button" class="hero-cta reveal" style="animation-delay:.65s" onclick="document.getElementById('loginCard').scrollIntoView({behavior:'smooth'})">开始生成计划 ↗</button>
+    <div class="tags reveal" style="animation-delay:.8s">
       <span class="pill">AI 驱动</span>
       <span class="pill">Markdown 输出</span>
       <span class="pill">可复制 · 可下载</span>
     </div>
+    <div class="scroll-hint"><span>向下滚动开始</span><span class="arrow"></span></div>
   </div>
 
   <div class="wrap">
